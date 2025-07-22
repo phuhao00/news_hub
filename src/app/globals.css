@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+:root {
+  --aws-orange: #ff9900;
+  --aws-orange-dark: #e88b00;
+  --aws-blue: #232f3e;
+  --aws-blue-light: #37475a;
+  --aws-gray-50: #fafafa;
+  --aws-gray-100: #f5f5f5;
+  --aws-gray-200: #eeeeee;
+  --aws-gray-300: #e0e0e0;
+  --aws-gray-600: #757575;
+  --aws-gray-900: #212121;
+  --background: #fafafa;
+  --foreground: #212121;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif;
+  --font-mono: "Amazon Ember Mono", "Courier New", monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+}
+
+/* AWS风格的按钮样式 */
+.aws-btn-primary {
+  background-color: var(--aws-orange);
+  border: 1px solid var(--aws-orange);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.aws-btn-primary:hover {
+  background-color: var(--aws-orange-dark);
+  border-color: var(--aws-orange-dark);
+}
+
+.aws-btn-secondary {
+  background-color: white;
+  border: 1px solid var(--aws-gray-300);
+  color: var(--aws-gray-900);
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.aws-btn-secondary:hover {
+  border-color: var(--aws-orange);
+  color: var(--aws-orange);
+}
+
+/* AWS风格的卡片 */
+.aws-card {
+  background: white;
+  border: 1px solid var(--aws-gray-200);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease;
+}
+
+.aws-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* AWS风格的输入框 */
+.aws-input {
+  border: 1px solid var(--aws-gray-300);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.aws-input:focus {
+  outline: none;
+  border-color: var(--aws-orange);
+  box-shadow: 0 0 0 2px rgba(255, 153, 0, 0.2);
+}
