@@ -54,7 +54,7 @@ NewHub是一个自动化的社交媒体内容采集和发布平台。它可以�
 4. 访问应用：
    - 前端界面：http://localhost
    - API接口：http://localhost/api
-   - MongoDB：localhost:27017
+   - MongoDB：localhost:27015
 
 ### 方式二：本地开发
 
@@ -90,7 +90,7 @@ NewHub是一个自动化的社交媒体内容采集和发布平台。它可以�
 4. 访问应用：
    - 前端界面：http://localhost:3000
    - 后端API：http://localhost:8080
-   - MongoDB：mongodb://localhost:27017
+   - MongoDB：mongodb://localhost:27015
 
 ## 项目结构
 
