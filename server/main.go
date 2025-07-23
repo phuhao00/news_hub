@@ -35,6 +35,9 @@ func main() {
 	// 注册自定义验证器
 	middleware.RegisterCustomValidators()
 
+	// Python爬虫服务在独立进程中运行
+	log.Println("Python爬虫服务运行在 http://localhost:8001")
+
 	// 创建Gin实例
 	r := gin.New() // 使用gin.New()替代gin.Default()以自定义中间件
 
@@ -76,6 +79,15 @@ func main() {
 		// 发布相关接口
 		api.POST("/publish", handlers.CreatePublishTask)
 		api.GET("/publish", handlers.GetPublishTasks)
+
+		// 帖子相关接口
+		api.GET("/posts", handlers.GetPosts)
+		api.GET("/posts/:id", handlers.GetPost)
+		api.DELETE("/posts/:id", handlers.DeletePost)
+
+		// 爬虫服务代理接口 (转发到Python服务)
+		api.POST("/crawler/trigger", handlers.ProxyCrawlerTrigger)
+		api.GET("/crawler/status", handlers.ProxyCrawlerStatus)
 	}
 
 	// 获取端口配置
