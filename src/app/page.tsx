@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { SocialPlatform, Creator } from '@/types';
-import { creatorApi } from '@/utils/api';
+import { creatorApi, crawlerApi, postApi } from '@/utils/api';
+import Link from 'next/link';
 
 export default function Home() {
   const [creators, setCreators] = useState<Creator[]>([]);
@@ -11,9 +12,12 @@ export default function Home() {
     platform: 'weibo' as SocialPlatform,
   });
   const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState({ totalPosts: 0, isRunning: false });
+  const [quickCrawling, setQuickCrawling] = useState(false);
 
   useEffect(() => {
     loadCreators();
+    loadStats();
   }, []);
 
   const loadCreators = async () => {
@@ -23,6 +27,21 @@ export default function Home() {
     } catch (error) {
       console.error('加载创作者失败:', error);
       alert('加载创作者失败');
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      const [postsData, crawlerStatus] = await Promise.all([
+        postApi.list({ limit: 1 }),
+        crawlerApi.status()
+      ]);
+      setStats({
+        totalPosts: postsData?.length || 0,
+        isRunning: crawlerStatus?.isRunning || false
+      });
+    } catch (error) {
+      console.error('加载统计数据失败:', error);
     }
   };
 
@@ -53,6 +72,25 @@ export default function Home() {
     }
   };
 
+  const handleQuickCrawl = async () => {
+    if (creators.length === 0) {
+      alert('请先添加创作者');
+      return;
+    }
+    
+    try {
+      setQuickCrawling(true);
+      await crawlerApi.trigger({});
+      alert('爬虫任务已启动！');
+      setTimeout(loadStats, 2000);
+    } catch (error) {
+      console.error('启动爬虫失败:', error);
+      alert('启动爬虫失败');
+    } finally {
+      setQuickCrawling(false);
+    }
+  };
+
   return (
     <main className="min-h-screen" style={{ backgroundColor: 'var(--aws-gray-50)' }}>
       {/* 页面头部 */}
@@ -68,37 +106,118 @@ export default function Home() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* 功能概览卡片 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        {/* 统计概览卡片 */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="aws-card p-6 text-center">
             <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold mb-2">创作者管理</h3>
-            <p className="text-gray-600 text-sm">添加和管理多平台创作者账号</p>
+            <h3 className="text-2xl font-bold text-orange-600 mb-1">{creators ? creators.length : 0}</h3>
+            <p className="text-gray-600 text-sm">创作者</p>
           </div>
           
           <div className="aws-card p-6 text-center">
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-4">
               <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold mb-2">视频生成</h3>
-            <p className="text-gray-600 text-sm">AI自动生成高质量视频内容</p>
+            <h3 className="text-2xl font-bold text-blue-600 mb-1">{stats.totalPosts}</h3>
+            <p className="text-gray-600 text-sm">内容数量</p>
           </div>
           
           <div className="aws-card p-6 text-center">
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
+              <div className={`w-3 h-3 rounded-full ${
+                stats.isRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+              }`}></div>
             </div>
-            <h3 className="text-lg font-semibold mb-2">一键发布</h3>
-            <p className="text-gray-600 text-sm">同时发布到多个社交媒体平台</p>
+            <h3 className={`text-lg font-semibold mb-1 ${
+              stats.isRunning ? 'text-green-600' : 'text-gray-600'
+            }`}>
+              {stats.isRunning ? '运行中' : '空闲'}
+            </h3>
+            <p className="text-gray-600 text-sm">爬虫状态</p>
           </div>
+          
+          <div className="aws-card p-6 text-center">
+            <button
+              onClick={handleQuickCrawl}
+              disabled={quickCrawling || stats.isRunning || !creators || creators.length === 0}
+              className={`w-full aws-btn-primary ${
+                (quickCrawling || stats.isRunning || !creators || creators.length === 0) ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {quickCrawling ? (
+                <span className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  启动中...
+                </span>
+              ) : stats.isRunning ? (
+                '运行中'
+              ) : !creators || creators.length === 0 ? (
+                '需要创作者'
+              ) : (
+                '快速爬取'
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* 快速导航 */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <Link href="/content" className="aws-card p-4 hover:shadow-lg transition-shadow group">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                <span className="text-lg">📝</span>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">内容管理</h3>
+                <p className="text-sm text-gray-500">查看爬取的内容</p>
+              </div>
+            </div>
+          </Link>
+          
+          <Link href="/crawler" className="aws-card p-4 hover:shadow-lg transition-shadow group">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+                <span className="text-lg">🕷️</span>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">爬虫控制</h3>
+                <p className="text-sm text-gray-500">管理爬取任务</p>
+              </div>
+            </div>
+          </Link>
+          
+          <Link href="/generate" className="aws-card p-4 hover:shadow-lg transition-shadow group">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200 transition-colors">
+                <span className="text-lg">🎬</span>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">视频生成</h3>
+                <p className="text-sm text-gray-500">AI生成视频</p>
+              </div>
+            </div>
+          </Link>
+          
+          <Link href="/publish" className="aws-card p-4 hover:shadow-lg transition-shadow group">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center group-hover:bg-orange-200 transition-colors">
+                <span className="text-lg">📤</span>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">发布管理</h3>
+                <p className="text-sm text-gray-500">管理发布任务</p>
+              </div>
+            </div>
+          </Link>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -178,11 +297,11 @@ export default function Home() {
                 <h2 className="text-xl font-semibold">已添加的创作者</h2>
               </div>
               <span className="text-sm px-3 py-1 bg-gray-100 rounded-full" style={{ color: 'var(--aws-gray-600)' }}>
-                {creators.length} 个
+                {creators ? creators.length : 0} 个
               </span>
             </div>
             
-            {creators.length === 0 ? (
+            {!creators || creators.length === 0 ? (
               <div className="text-center py-12">
                 <svg className="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -192,7 +311,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-3 max-h-96 overflow-y-auto">
-                {creators.map((creator) => (
+                {creators && creators.map((creator) => (
                   <div
                     key={creator.id}
                     className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-orange-300 transition-colors"

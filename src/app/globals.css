@@ -87,3 +87,50 @@ body {
   border-color: var(--aws-orange);
   box-shadow: 0 0 0 2px rgba(255, 153, 0, 0.2);
 }
+
+/* 文本截断样式 */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 响应式改进 */
+@media (max-width: 768px) {
+  .aws-card {
+    margin-bottom: 1rem;
+  }
+  
+  .grid {
+    gap: 1rem;
+  }
+}
+
+/* 动画改进 */
+.transition-shadow {
+  transition: box-shadow 0.3s ease;
+}
+
+.group:hover .group-hover\:bg-blue-200 {
+  background-color: #dbeafe;
+}
+
+.group:hover .group-hover\:bg-purple-200 {
+  background-color: #e9d5ff;
+}
+
+.group:hover .group-hover\:bg-green-200 {
+  background-color: #dcfce7;
+}
+
+.group:hover .group-hover\:bg-orange-200 {
+  background-color: #fed7aa;
+}

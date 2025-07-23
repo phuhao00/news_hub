@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = 'http://localhost:8082/api';
 
 // 创作者相关API
 export const creatorApi = {
@@ -61,6 +61,53 @@ export const publishApi = {
   list: async () => {
     const response = await fetch(`${API_BASE_URL}/publish/tasks`);
     if (!response.ok) throw new Error('Failed to fetch publish tasks');
+    return response.json();
+  },
+};
+
+// 爬虫相关API
+export const crawlerApi = {
+  trigger: async (data: { creatorIds?: string[]; platforms?: string[] }) => {
+    const response = await fetch(`${API_BASE_URL}/crawler/trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to trigger crawler');
+    return response.json();
+  },
+
+  status: async () => {
+    const response = await fetch(`${API_BASE_URL}/crawler/status`);
+    if (!response.ok) throw new Error('Failed to get crawler status');
+    return response.json();
+  },
+};
+
+// 内容相关API
+export const postApi = {
+  list: async (params?: { creatorId?: string; platform?: string; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.creatorId) searchParams.append('creatorId', params.creatorId);
+    if (params?.platform) searchParams.append('platform', params.platform);
+    if (params?.limit) searchParams.append('limit', params.limit.toString());
+    
+    const response = await fetch(`${API_BASE_URL}/posts?${searchParams}`);
+    if (!response.ok) throw new Error('Failed to fetch posts');
+    return response.json();
+  },
+
+  get: async (id: string) => {
+    const response = await fetch(`${API_BASE_URL}/posts/${id}`);
+    if (!response.ok) throw new Error('Failed to fetch post');
+    return response.json();
+  },
+
+  delete: async (id: string) => {
+    const response = await fetch(`${API_BASE_URL}/posts/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete post');
     return response.json();
   },
 };
