@@ -15,7 +15,7 @@ var DB *mongo.Database
 func ConnectDB() error {
 	mongoURI := os.Getenv("MONGODB_URI")
 	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27015"
+		mongoURI = "mongodb://localhost:27017"
 	}
 
 	clientOptions := options.Client().ApplyURI(mongoURI)

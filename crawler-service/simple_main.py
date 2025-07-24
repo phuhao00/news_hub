@@ -1,16 +1,16 @@
 import asyncio
 import logging
-from typing import List, Dict, Any
+import requests
+from bs4 import BeautifulSoup
 from datetime import datetime
+from contextlib import asynccontextmanager
+from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 import os
 from dotenv import load_dotenv
-import requests
-from urllib.parse import urljoin, urlparse
-import re
-import time
+import html2text
 
 # 加载环境变量
 load_dotenv()
@@ -19,19 +19,18 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="NewsHub Simple Crawler Service", version="1.0.0")
-
 class CrawlRequest(BaseModel):
     url: str
     extract_content: bool = True
     extract_links: bool = False
-    timeout: int = 30
+    css_selector: str = None
+    word_count_threshold: int = 10
 
 class CrawlResponse(BaseModel):
     url: str
     title: str
     content: str
-    text: str
+    markdown: str
     links: List[str] = []
     crawled_at: datetime
     success: bool
@@ -39,175 +38,234 @@ class CrawlResponse(BaseModel):
 
 class SimpleCrawlerService:
     def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
-    
-    def extract_text_from_html(self, html_content: str) -> str:
-        """从HTML中提取纯文本"""
-        # 移除脚本和样式标签
-        html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-        html_content = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
+        self.session = None
+        self.html_converter = html2text.HTML2Text()
+        self.html_converter.ignore_links = False
         
-        # 移除HTML标签
-        text = re.sub(r'<[^>]+>', '', html_content)
+    async def initialize(self):
+        """初始化爬虫服务"""
+        try:
+            self.session = requests.Session()
+            self.session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            })
+            logger.info("简化爬虫服务初始化成功")
+        except Exception as e:
+            logger.error(f"初始化爬虫服务失败: {e}")
+            raise
+
+    async def cleanup(self):
+        """清理资源"""
+        try:
+            if self.session:
+                self.session.close()
+                logger.info("简化爬虫服务清理完成")
+        except Exception as e:
+            logger.error(f"清理过程中出错: {e}")
+
+    def extract_content(self, soup: BeautifulSoup, css_selector: Optional[str] = None) -> str:
+        """提取页面内容"""
+        if css_selector:
+            content_elements = soup.select(css_selector)
+            if content_elements:
+                return ' '.join([elem.get_text(strip=True) for elem in content_elements])
         
-        # 清理空白字符
-        text = re.sub(r'\s+', ' ', text).strip()
+        # 默认提取策略
+        # 移除脚本和样式
+        for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
+            script.decompose()
         
-        return text
-    
-    def extract_title_from_html(self, html_content: str) -> str:
-        """从HTML中提取标题"""
-        title_match = re.search(r'<title[^>]*>(.*?)</title>', html_content, re.IGNORECASE | re.DOTALL)
-        if title_match:
-            return title_match.group(1).strip()
-        return ''
-    
-    def extract_links_from_html(self, html_content: str, base_url: str) -> List[str]:
-        """从HTML中提取链接"""
+        # 寻找主要内容区域
+        main_selectors = [
+            'main', 'article', '.content', '.post-content', 
+            '.article-content', '.news-content', '#content',
+            '.entry-content', '.post-body'
+        ]
+        
+        for selector in main_selectors:
+            content_elem = soup.select_one(selector)
+            if content_elem:
+                return content_elem.get_text(strip=True)
+        
+        # 如果没找到，使用body
+        body = soup.find('body')
+        if body:
+            return body.get_text(strip=True)
+        
+        return soup.get_text(strip=True)
+
+    def extract_links(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        """提取页面链接"""
         links = []
-        link_pattern = r'<a[^>]+href=["\']([^"\'>]+)["\'][^>]*>'
-        
-        for match in re.finditer(link_pattern, html_content, re.IGNORECASE):
-            link = match.group(1)
-            # 转换为绝对URL
-            absolute_link = urljoin(base_url, link)
-            if absolute_link not in links:
-                links.append(absolute_link)
-        
-        return links[:50]  # 限制链接数量
-    
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            if href.startswith('http'):
+                links.append(href)
+            elif href.startswith('/'):
+                from urllib.parse import urljoin
+                links.append(urljoin(base_url, href))
+        return list(set(links))  # 去重
+
     async def crawl_url(self, request: CrawlRequest) -> CrawlResponse:
         """爬取指定URL"""
         try:
-            # 发送HTTP请求
-            response = self.session.get(request.url, timeout=request.timeout)
-            response.raise_for_status()
+            if not self.session:
+                await self.initialize()
             
-            html_content = response.text
+            # 发起请求
+            response = self.session.get(request.url, timeout=30)
+            response.raise_for_status()
+            response.encoding = response.apparent_encoding
+            
+            # 解析HTML
+            soup = BeautifulSoup(response.text, 'html.parser')
             
             # 提取标题
-            title = self.extract_title_from_html(html_content)
+            title_elem = soup.find('title')
+            title = title_elem.get_text(strip=True) if title_elem else ''
             
-            # 提取文本内容
-            text_content = self.extract_text_from_html(html_content)
+            # 提取内容
+            content = ""
+            if request.extract_content:
+                content = self.extract_content(soup, request.css_selector)
+                
+                # 检查字数阈值
+                word_count = len(content.split())
+                if word_count < request.word_count_threshold:
+                    content = soup.get_text(strip=True)
             
             # 提取链接
             links = []
             if request.extract_links:
-                links = self.extract_links_from_html(html_content, request.url)
+                links = self.extract_links(soup, request.url)
+            
+            # 转换为Markdown
+            markdown = ""
+            if content:
+                # 从原始HTML生成Markdown
+                if request.css_selector:
+                    content_elements = soup.select(request.css_selector)
+                    if content_elements:
+                        html_content = ''.join([str(elem) for elem in content_elements])
+                    else:
+                        html_content = str(soup)
+                else:
+                    html_content = str(soup)
+                
+                markdown = self.html_converter.handle(html_content)
             
             return CrawlResponse(
                 url=request.url,
                 title=title,
-                content=html_content[:5000] if request.extract_content else '',  # 限制内容长度
-                text=text_content[:2000],  # 限制文本长度
-                links=links,
+                content=content,
+                markdown=markdown,
+                links=links[:50],  # 限制链接数量
                 crawled_at=datetime.now(),
                 success=True
             )
             
         except Exception as e:
-            logger.error(f"Failed to crawl {request.url}: {e}")
+            logger.error(f"爬取 {request.url} 失败: {e}")
             return CrawlResponse(
                 url=request.url,
-                title='',
-                content='',
-                text='',
+                title="",
+                content="",
+                markdown="",
                 crawled_at=datetime.now(),
                 success=False,
                 error_message=str(e)
             )
-    
-    async def crawl_news_site(self, site_url: str) -> CrawlResponse:
-        """专门用于爬取新闻网站"""
-        request = CrawlRequest(
-            url=site_url,
-            extract_content=True,
-            extract_links=True,
-            timeout=30
-        )
-        return await self.crawl_url(request)
 
 # 全局爬虫服务实例
 crawler_service = SimpleCrawlerService()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时
+    try:
+        await crawler_service.initialize()
+        logger.info("应用启动完成")
+    except Exception as e:
+        logger.error(f"应用初始化失败: {e}")
+        raise
+    
+    yield
+    
+    # 关闭时
+    try:
+        await crawler_service.cleanup()
+        logger.info("应用关闭完成")
+    except Exception as e:
+        logger.error(f"应用关闭过程中出错: {e}")
+
+app = FastAPI(
+    title="NewsHub 简化爬虫服务", 
+    version="1.0.0",
+    lifespan=lifespan
+)
+
 @app.get("/")
 async def root():
-    return {"message": "NewsHub Simple Crawler Service is running", "version": "1.0.0"}
+    """健康检查端点"""
+    return {"message": "NewsHub 简化爬虫服务正在运行", "status": "healthy", "type": "simplified"}
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now()}
+    """详细健康检查"""
+    return {
+        "status": "healthy",
+        "service": "simplified-crawler",
+        "crawler_initialized": crawler_service.session is not None,
+        "timestamp": datetime.now(),
+        "features": ["requests", "beautifulsoup", "html2text"]
+    }
 
 @app.post("/crawl", response_model=CrawlResponse)
 async def crawl_url(request: CrawlRequest):
-    """爬取指定URL"""
+    """爬取指定URL的内容"""
     try:
+        if not crawler_service.session:
+            raise HTTPException(status_code=503, detail="爬虫服务未初始化")
+        
         result = await crawler_service.crawl_url(request)
         return result
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"爬取URL出错 {request.url}: {e}")
+        return CrawlResponse(
+            url=request.url,
+            title="",
+            content="",
+            markdown="",
+            crawled_at=datetime.now(),
+            success=False,
+            error_message=str(e)
+        )
 
-@app.post("/crawl/news", response_model=CrawlResponse)
-async def crawl_news(url: str):
-    """专门爬取新闻网站"""
-    try:
-        result = await crawler_service.crawl_news_site(url)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/crawl/batch", response_model=List[CrawlResponse])
+@app.post("/crawl/batch")
 async def crawl_batch(urls: List[str]):
     """批量爬取多个URL"""
-    try:
-        tasks = []
-        for url in urls:
-            request = CrawlRequest(url=url)
-            tasks.append(crawler_service.crawl_url(request))
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 处理异常结果
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                processed_results.append(CrawlResponse(
-                    url=urls[i],
-                    title='',
-                    content='',
-                    text='',
-                    crawled_at=datetime.now(),
-                    success=False,
-                    error_message=str(result)
-                ))
-            else:
-                processed_results.append(result)
-        
-        return processed_results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    results = []
+    for url in urls:
+        request = CrawlRequest(url=url)
+        result = await crawl_url(request)
+        results.append(result)
+    return {"results": results, "total": len(results)}
 
-# 示例爬虫函数
-async def example_crawl():
-    """示例爬虫函数"""
-    request = CrawlRequest(url="https://www.nbcnews.com/business")
-    result = await crawler_service.crawl_url(request)
-    print(f"标题: {result.title}")
-    print(f"内容长度: {len(result.text)}")
-    print(f"文本预览: {result.text[:200]}...")
+@app.get("/crawl/platforms")
+async def get_supported_platforms():
+    """获取支持的平台列表"""
+    return {
+        "platforms": [
+            {"name": "通用网站", "domain": "*", "supported": True, "method": "requests+beautifulsoup"},
+            {"name": "新闻网站", "domain": "news.*", "supported": True, "method": "html解析"},
+            {"name": "博客网站", "domain": "blog.*", "supported": True, "method": "内容提取"},
+            {"name": "GitHub", "domain": "github.com", "supported": True, "method": "静态内容"},
+            {"name": "Stack Overflow", "domain": "stackoverflow.com", "supported": True, "method": "问答提取"}
+        ],
+        "note": "简化版爬虫，不支持JavaScript渲染，但兼容性更好"
+    }
 
 if __name__ == "__main__":
-    # 可以直接运行示例
-    # asyncio.run(example_crawl())
-    
-    # 或者启动FastAPI服务
-    uvicorn.run(
-        "simple_main:app",
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 8001)),
-        reload=True
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8001)

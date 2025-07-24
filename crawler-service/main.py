@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import platform
+from contextlib import asynccontextmanager
 from typing import List, Dict, Any
 from datetime import datetime
 from crawl4ai import AsyncWebCrawler
@@ -9,14 +11,16 @@ import uvicorn
 import os
 from dotenv import load_dotenv
 
+# Windows上的asyncio事件循环策略修复
+if platform.system() == 'Windows':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 # 加载环境变量
 load_dotenv()
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-app = FastAPI(title="NewsHub Crawler Service", version="1.0.0")
 
 class CrawlRequest(BaseModel):
     url: str
@@ -51,137 +55,121 @@ class CrawlerService:
         except Exception as e:
             logger.error(f"Failed to initialize crawler: {e}")
             raise
-    
-    async def crawl_url(self, request: CrawlRequest) -> CrawlResponse:
-        """爬取指定URL"""
-        try:
-            if not self.crawler:
-                await self.initialize()
-            
-            # 执行爬取
-            result = await self.crawler.arun(
-                url=request.url,
-                css_selector=request.css_selector,
-                word_count_threshold=request.word_count_threshold,
-                extract_links=request.extract_links
-            )
-            
-            # 提取链接
-            links = []
-            if request.extract_links and hasattr(result, 'links'):
-                links = result.links.get('internal', []) + result.links.get('external', [])
-            
-            return CrawlResponse(
-                url=request.url,
-                title=result.metadata.get('title', '') if result.metadata else '',
-                content=result.cleaned_html or '',
-                markdown=result.markdown or '',
-                links=links,
-                crawled_at=datetime.now(),
-                success=True
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to crawl {request.url}: {e}")
-            return CrawlResponse(
-                url=request.url,
-                title='',
-                content='',
-                markdown='',
-                crawled_at=datetime.now(),
-                success=False,
-                error_message=str(e)
-            )
-    
-    async def crawl_news_site(self, site_url: str) -> CrawlResponse:
-        """专门用于爬取新闻网站"""
-        request = CrawlRequest(
-            url=site_url,
-            extract_content=True,
-            extract_links=True,
-            css_selector="article, .article, .news-content, .post-content, main",
-            word_count_threshold=50
-        )
-        return await self.crawl_url(request)
-    
+
     async def cleanup(self):
         """清理资源"""
-        if self.crawler:
-            try:
+        try:
+            if self.crawler:
                 await self.crawler.__aexit__(None, None, None)
-                logger.info("Crawler service cleaned up")
-            except Exception as e:
-                logger.error(f"Error during cleanup: {e}")
+                logger.info("Crawler service cleaned up successfully")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
 
 # 全局爬虫服务实例
 crawler_service = CrawlerService()
 
-@app.on_event("startup")
-async def startup_event():
-    """应用启动时初始化爬虫"""
-    await crawler_service.initialize()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时
+    try:
+        await crawler_service.initialize()
+        logger.info("Application startup completed")
+    except Exception as e:
+        logger.error(f"Failed to initialize application: {e}")
+        raise
+    
+    yield
+    
+    # 关闭时
+    try:
+        await crawler_service.cleanup()
+        logger.info("Application shutdown completed")
+    except Exception as e:
+        logger.error(f"Error during application shutdown: {e}")
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """应用关闭时清理资源"""
-    await crawler_service.cleanup()
+app = FastAPI(
+    title="NewsHub Crawler Service", 
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 @app.get("/")
 async def root():
-    return {"message": "NewsHub Crawler Service is running"}
+    """健康检查端点"""
+    return {"message": "NewsHub Crawler Service is running", "status": "healthy"}
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now()}
+    """详细健康检查"""
+    return {
+        "status": "healthy",
+        "service": "crawler",
+        "crawler_initialized": crawler_service.crawler is not None,
+        "timestamp": datetime.now()
+    }
 
 @app.post("/crawl", response_model=CrawlResponse)
 async def crawl_url(request: CrawlRequest):
-    """爬取指定URL"""
+    """爬取指定URL的内容"""
     try:
-        result = await crawler_service.crawl_url(request)
-        return result
+        if not crawler_service.crawler:
+            raise HTTPException(status_code=503, detail="Crawler service not initialized")
+        
+        # 执行爬取
+        result = await crawler_service.crawler.acrawl(
+            url=request.url,
+            css_selector=request.css_selector,
+            word_count_threshold=request.word_count_threshold,
+            extraction_strategy="cosine_similarity" if request.extract_content else None
+        )
+        
+        return CrawlResponse(
+            url=request.url,
+            title=result.metadata.get('title', ''),
+            content=result.cleaned_html or '',
+            markdown=result.markdown or '',
+            links=result.links.get('internal', []) if request.extract_links else [],
+            crawled_at=datetime.now(),
+            success=result.success,
+            error_message=result.error_message if not result.success else None
+        )
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error crawling {request.url}: {e}")
+        return CrawlResponse(
+            url=request.url,
+            title="",
+            content="",
+            markdown="",
+            crawled_at=datetime.now(),
+            success=False,
+            error_message=str(e)
+        )
 
-@app.post("/crawl/news", response_model=CrawlResponse)
-async def crawl_news(url: str):
-    """专门爬取新闻网站"""
-    try:
-        result = await crawler_service.crawl_news_site(url)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/crawl/batch", response_model=List[CrawlResponse])
+@app.post("/crawl/batch")
 async def crawl_batch(urls: List[str]):
     """批量爬取多个URL"""
-    try:
-        tasks = []
-        for url in urls:
-            request = CrawlRequest(url=url)
-            tasks.append(crawler_service.crawl_url(request))
-        
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 处理异常结果
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                processed_results.append(CrawlResponse(
-                    url=urls[i],
-                    title='',
-                    content='',
-                    markdown='',
-                    crawled_at=datetime.now(),
-                    success=False,
-                    error_message=str(result)
-                ))
-            else:
-                processed_results.append(result)
-        
-        return processed_results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    results = []
+    for url in urls:
+        request = CrawlRequest(url=url)
+        result = await crawl_url(request)
+        results.append(result)
+    return {"results": results, "total": len(results)}
+
+@app.get("/crawl/platforms")
+async def get_supported_platforms():
+    """获取支持的平台列表"""
+    return {
+        "platforms": [
+            {"name": "Twitter", "domain": "twitter.com", "supported": True},
+            {"name": "Reddit", "domain": "reddit.com", "supported": True},
+            {"name": "Hacker News", "domain": "news.ycombinator.com", "supported": True},
+            {"name": "Medium", "domain": "medium.com", "supported": True},
+            {"name": "GitHub", "domain": "github.com", "supported": True},
+            {"name": "Stack Overflow", "domain": "stackoverflow.com", "supported": True}
+        ]
+    }
 
 # 示例爬虫函数
 async def example_crawl():
