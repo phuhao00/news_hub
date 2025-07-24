@@ -1,17 +1,17 @@
 #!/bin/bash
-# NewsHub 一键启动脚本 (Linux/macOS)
-# 启动前端、后端和爬虫服务
+# NewsHub One-Click Startup Script (Linux/macOS)
+# Start frontend, backend and crawler services
 
-echo "=== NewsHub 一键启动脚本 ==="
-echo "正在启动 NewsHub 应用的所有服务..."
+echo "=== NewsHub One-Click Startup Script ==="
+echo "Starting all NewsHub application services..."
 
-# 检查是否在正确的目录
+# Check if in correct directory
 if [ ! -f "package.json" ]; then
-    echo "错误: 请在 NewsHub 项目根目录下运行此脚本"
+    echo "Error: Please run this script in the NewsHub project root directory"
     exit 1
 fi
 
-# 函数：检查端口是否被占用
+# Function: Check if port is occupied
 check_port() {
     local port=$1
     if command -v nc >/dev/null 2>&1; then
@@ -19,131 +19,131 @@ check_port() {
     elif command -v telnet >/dev/null 2>&1; then
         timeout 1 telnet localhost $port >/dev/null 2>&1
     else
-        # 使用lsof作为备选
+        # Use lsof as fallback
         lsof -i :$port >/dev/null 2>&1
     fi
 }
 
-# 函数：等待服务启动
+# Function: Wait for service to start
 wait_for_service() {
     local port=$1
     local service_name=$2
     local timeout=${3:-30}
     
-    echo "等待 $service_name 启动 (端口 $port)..."
+    echo "Waiting for $service_name to start (port $port)..."
     local elapsed=0
     
     while [ $elapsed -lt $timeout ]; do
         if check_port $port; then
-            echo "✓ $service_name 已启动"
+            echo "✓ $service_name started"
             return 0
         fi
         sleep 1
         elapsed=$((elapsed + 1))
     done
     
-    echo "✗ $service_name 启动超时"
+    echo "✗ $service_name startup timeout"
     return 1
 }
 
-# 清理函数
+# Cleanup function
 cleanup() {
-    echo "\n正在停止所有服务..."
+    echo "\nStopping all services..."
     jobs -p | xargs -r kill
-    echo "所有服务已停止"
+    echo "All services stopped"
     exit 0
 }
 
-# 设置信号处理
+# Set signal handling
 trap cleanup SIGINT SIGTERM
 
-# 检查并安装前端依赖
-echo "\n1. 检查前端依赖..."
+# Check and install frontend dependencies
+echo "\n1. Checking frontend dependencies..."
 if [ ! -d "node_modules" ]; then
-    echo "安装前端依赖..."
+    echo "Installing frontend dependencies..."
     npm install
     if [ $? -ne 0 ]; then
-        echo "前端依赖安装失败"
+        echo "Frontend dependencies installation failed"
         exit 1
     fi
 fi
 
-# 检查并安装爬虫服务依赖
-echo "\n2. 检查爬虫服务依赖..."
+# Check and install crawler service dependencies
+echo "\n2. Checking crawler service dependencies..."
 cd crawler-service
 if [ ! -d ".venv" ]; then
-    echo "创建Python虚拟环境..."
+    echo "Creating Python virtual environment..."
     python3 -m venv .venv
 fi
 
-# 激活虚拟环境并安装依赖
+# Activate virtual environment and install dependencies
 source .venv/bin/activate
 pip install -r requirements.txt
 if [ $? -ne 0 ]; then
-    echo "爬虫服务依赖安装失败"
+    echo "Crawler service dependencies installation failed"
     exit 1
 fi
 cd ..
 
-# 检查Go环境和后端依赖
-echo "\n3. 检查后端服务..."
+# Check Go environment and backend dependencies
+echo "\n3. Checking backend service..."
 cd server
 go mod tidy
 if [ $? -ne 0 ]; then
-    echo "后端依赖检查失败"
+    echo "Backend dependencies check failed"
     exit 1
 fi
 cd ..
 
-# 启动服务
-echo "\n4. 启动服务..."
+# Start services
+echo "\n4. Starting services..."
 
-# 启动后端服务 (端口 8082)
-echo "启动后端服务..."
+# Start backend service (port 8082)
+echo "Starting backend service..."
 cd server
 go run main.go &
 BACKEND_PID=$!
 cd ..
 
-# 等待后端服务启动
-if ! wait_for_service 8082 "后端服务"; then
-    echo "后端服务启动失败，停止所有服务"
+# Wait for backend service to start
+if ! wait_for_service 8082 "Backend Service"; then
+    echo "Backend service startup failed, stopping all services"
     kill $BACKEND_PID 2>/dev/null
     exit 1
 fi
 
-# 启动爬虫服务 (端口 8001)
-echo "启动爬虫服务..."
+# Start crawler service (port 8001)
+echo "Starting crawler service..."
 cd crawler-service
 source .venv/bin/activate
 python main.py &
 CRAWLER_PID=$!
 cd ..
 
-# 等待爬虫服务启动
-if ! wait_for_service 8001 "爬虫服务"; then
-    echo "爬虫服务启动失败，停止所有服务"
+# Wait for crawler service to start
+if ! wait_for_service 8001 "Crawler Service"; then
+    echo "Crawler service startup failed, stopping all services"
     kill $BACKEND_PID $CRAWLER_PID 2>/dev/null
     exit 1
 fi
 
-# 启动前端服务 (端口 3001)
-echo "启动前端服务..."
+# Start frontend service (port 3001)
+echo "Starting frontend service..."
 npm run dev &
 FRONTEND_PID=$!
 
-# 等待前端服务启动
-if ! wait_for_service 3001 "前端服务"; then
-    echo "前端服务启动失败，停止所有服务"
+# Wait for frontend service to start
+if ! wait_for_service 3001 "Frontend Service"; then
+    echo "Frontend service startup failed, stopping all services"
     kill $BACKEND_PID $CRAWLER_PID $FRONTEND_PID 2>/dev/null
     exit 1
 fi
 
-echo "\n=== 所有服务启动成功! ==="
-echo "前端服务: http://localhost:3001"
-echo "后端服务: http://localhost:8082"
-echo "爬虫服务: http://localhost:8001"
-echo "\n按 Ctrl+C 停止所有服务"
+echo "\n=== All services started successfully! ==="
+echo "Frontend service: http://localhost:3001"
+echo "Backend service: http://localhost:8082"
+echo "Crawler service: http://localhost:8001"
+echo "\nPress Ctrl+C to stop all services"
 
-# 等待用户中断
+# Wait for user interruption
 wait

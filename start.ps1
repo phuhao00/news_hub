@@ -1,17 +1,17 @@
 #!/usr/bin/env pwsh
-# NewsHub 一键启动脚本
-# 启动前端、后端和爬虫服务
+# NewsHub One-Click Startup Script
+# Start frontend, backend and crawler services
 
-Write-Host "=== NewsHub 一键启动脚本 ===" -ForegroundColor Green
-Write-Host "正在启动 NewsHub 应用的所有服务..." -ForegroundColor Yellow
+Write-Host "=== NewsHub One-Click Startup Script ===" -ForegroundColor Green
+Write-Host "Starting all NewsHub application services..." -ForegroundColor Yellow
 
-# 检查是否在正确的目录
+# Check if running in correct directory
 if (-not (Test-Path "package.json")) {
-    Write-Host "错误: 请在 NewsHub 项目根目录下运行此脚本" -ForegroundColor Red
+    Write-Host "Error: Please run this script in NewsHub project root directory" -ForegroundColor Red
     exit 1
 }
 
-# 函数：检查端口是否被占用
+# Function: Check if port is occupied
 function Test-Port {
     param([int]$Port)
     try {
@@ -23,51 +23,51 @@ function Test-Port {
     }
 }
 
-# 函数：等待服务启动
+# Function: Wait for service to start
 function Wait-ForService {
     param([int]$Port, [string]$ServiceName, [int]$TimeoutSeconds = 30)
     
-    Write-Host "等待 $ServiceName 启动 (端口 $Port)..." -ForegroundColor Yellow
+    Write-Host "Waiting for $ServiceName to start (port $Port)..." -ForegroundColor Yellow
     $elapsed = 0
     
     while ($elapsed -lt $TimeoutSeconds) {
         if (Test-Port -Port $Port) {
-            Write-Host "✓ $ServiceName 已启动" -ForegroundColor Green
+            Write-Host "✓ $ServiceName started" -ForegroundColor Green
             return $true
         }
         Start-Sleep -Seconds 1
         $elapsed++
     }
     
-    Write-Host "✗ $ServiceName 启动超时" -ForegroundColor Red
+    Write-Host "✗ $ServiceName startup timeout" -ForegroundColor Red
     return $false
 }
 
-# 检查并安装前端依赖
-Write-Host "`n1. 检查前端依赖..." -ForegroundColor Cyan
+# Check and install frontend dependencies
+Write-Host "`n1. Checking frontend dependencies..." -ForegroundColor Cyan
 if (-not (Test-Path "node_modules")) {
-    Write-Host "安装前端依赖..." -ForegroundColor Yellow
+    Write-Host "Installing frontend dependencies..." -ForegroundColor Yellow
     npm install
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "前端依赖安装失败" -ForegroundColor Red
+        Write-Host "Frontend dependencies installation failed" -ForegroundColor Red
         exit 1
     }
 }
 
-# 检查并安装爬虫服务依赖
-Write-Host "`n2. 检查爬虫服务依赖..." -ForegroundColor Cyan
+# Check and install crawler service dependencies
+Write-Host "`n2. Checking crawler service dependencies..." -ForegroundColor Cyan
 Push-Location crawler-service
 try {
     if (-not (Test-Path ".venv")) {
-        Write-Host "创建Python虚拟环境..." -ForegroundColor Yellow
+        Write-Host "Creating Python virtual environment..." -ForegroundColor Yellow
         python -m venv .venv
     }
     
-    # 激活虚拟环境并安装依赖
+    # Activate virtual environment and install dependencies
     & ".venv\Scripts\Activate.ps1"
     pip install -r requirements.txt
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "爬虫服务依赖安装失败" -ForegroundColor Red
+        Write-Host "Crawler service dependencies installation failed" -ForegroundColor Red
         exit 1
     }
 }
@@ -75,13 +75,13 @@ finally {
     Pop-Location
 }
 
-# 检查Go环境和后端依赖
-Write-Host "`n3. 检查后端服务..." -ForegroundColor Cyan
+# Check Go environment and backend dependencies
+Write-Host "`n3. Checking backend service..." -ForegroundColor Cyan
 Push-Location server
 try {
     go mod tidy
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "后端依赖检查失败" -ForegroundColor Red
+        Write-Host "Backend dependencies check failed" -ForegroundColor Red
         exit 1
     }
 }
@@ -89,11 +89,11 @@ finally {
     Pop-Location
 }
 
-# 启动服务
-Write-Host "`n4. 启动服务..." -ForegroundColor Cyan
+# Start services
+Write-Host "`n4. Starting services..." -ForegroundColor Cyan
 
-# 启动后端服务 (端口 8082)
-Write-Host "启动后端服务..." -ForegroundColor Yellow
+# Start backend service (port 8082)
+Write-Host "Starting backend service..." -ForegroundColor Yellow
 Push-Location server
 $backendJob = Start-Job -ScriptBlock {
     Set-Location $using:PWD
@@ -101,16 +101,16 @@ $backendJob = Start-Job -ScriptBlock {
 }
 Pop-Location
 
-# 等待后端服务启动
-if (-not (Wait-ForService -Port 8082 -ServiceName "后端服务")) {
-    Write-Host "后端服务启动失败，停止所有服务" -ForegroundColor Red
+# Wait for backend service to start
+if (-not (Wait-ForService -Port 8082 -ServiceName "Backend Service")) {
+    Write-Host "Backend service startup failed, stopping all services" -ForegroundColor Red
     Get-Job | Stop-Job
     Get-Job | Remove-Job
     exit 1
 }
 
-# 启动爬虫服务 (端口 8001)
-Write-Host "启动爬虫服务..." -ForegroundColor Yellow
+# Start crawler service (port 8001)
+Write-Host "Starting crawler service..." -ForegroundColor Yellow
 Push-Location crawler-service
 $crawlerJob = Start-Job -ScriptBlock {
     Set-Location $using:PWD
@@ -119,44 +119,44 @@ $crawlerJob = Start-Job -ScriptBlock {
 }
 Pop-Location
 
-# 等待爬虫服务启动
-if (-not (Wait-ForService -Port 8001 -ServiceName "爬虫服务")) {
-    Write-Host "爬虫服务启动失败，停止所有服务" -ForegroundColor Red
+# Wait for crawler service to start
+if (-not (Wait-ForService -Port 8001 -ServiceName "Crawler Service")) {
+    Write-Host "Crawler service startup failed, stopping all services" -ForegroundColor Red
     Get-Job | Stop-Job
     Get-Job | Remove-Job
     exit 1
 }
 
-# 启动前端服务 (端口 3001)
-Write-Host "启动前端服务..." -ForegroundColor Yellow
+# Start frontend service (port 3001)
+Write-Host "Starting frontend service..." -ForegroundColor Yellow
 $frontendJob = Start-Job -ScriptBlock {
     Set-Location $using:PWD
     npm run dev
 }
 
-# 等待前端服务启动
-if (-not (Wait-ForService -Port 3001 -ServiceName "前端服务")) {
-    Write-Host "前端服务启动失败，停止所有服务" -ForegroundColor Red
+# Wait for frontend service to start
+if (-not (Wait-ForService -Port 3001 -ServiceName "Frontend Service")) {
+    Write-Host "Frontend service startup failed, stopping all services" -ForegroundColor Red
     Get-Job | Stop-Job
     Get-Job | Remove-Job
     exit 1
 }
 
-Write-Host "`n=== 所有服务启动成功! ===" -ForegroundColor Green
-Write-Host "前端服务: http://localhost:3001" -ForegroundColor Cyan
-Write-Host "后端服务: http://localhost:8082" -ForegroundColor Cyan
-Write-Host "爬虫服务: http://localhost:8001" -ForegroundColor Cyan
-Write-Host "`n按 Ctrl+C 停止所有服务" -ForegroundColor Yellow
+Write-Host "`n=== All services started successfully! ===" -ForegroundColor Green
+Write-Host "Frontend service: http://localhost:3001" -ForegroundColor Cyan
+Write-Host "Backend service: http://localhost:8082" -ForegroundColor Cyan
+Write-Host "Crawler service: http://localhost:8001" -ForegroundColor Cyan
+Write-Host "`nPress Ctrl+C to stop all services" -ForegroundColor Yellow
 
-# 等待用户中断
+# Wait for user interruption
 try {
     while ($true) {
         Start-Sleep -Seconds 1
     }
 }
 finally {
-    Write-Host "`n正在停止所有服务..." -ForegroundColor Yellow
+    Write-Host "`nStopping all services..." -ForegroundColor Yellow
     Get-Job | Stop-Job
     Get-Job | Remove-Job
-    Write-Host "所有服务已停止" -ForegroundColor Green
+    Write-Host "All services stopped" -ForegroundColor Green
 }
