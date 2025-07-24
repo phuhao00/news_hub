@@ -92,6 +92,54 @@ NewHub是一个自动化的社交媒体内容采集和发布平台。它可以�
    - 后端API：http://localhost:8080
    - MongoDB：mongodb://localhost:27015
 
+### 方式三：一键启动脚本（开发环境）
+
+项目提供了跨平台的一键启动脚本，可以快速启动所有开发服务：
+
+#### Windows 用户
+
+**PowerShell 脚本（推荐）**：
+```powershell
+.\start.ps1
+```
+
+**批处理脚本**：
+```cmd
+start.bat
+```
+
+#### Linux/macOS 用户
+
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+#### 脚本功能
+
+- **自动环境检查**：检测 Node.js、Python、Go 是否已安装
+- **依赖管理**：自动安装前端依赖和 Python 虚拟环境
+- **服务启动**：按顺序启动后端、爬虫、前端服务
+- **健康检查**：等待服务完全启动并验证可用性
+- **端口管理**：自动检测端口占用情况
+- **错误处理**：启动失败时自动清理和错误提示
+
+#### 服务地址
+
+启动成功后，可以通过以下地址访问：
+
+- **前端服务**：http://localhost:3001
+- **后端服务**：http://localhost:8082
+- **爬虫服务**：http://localhost:8001
+
+#### 停止服务
+
+在脚本运行的终端中按 `Ctrl+C` 即可停止所有服务。
+
+#### 故障排除
+
+如果启动脚本遇到问题，请参考 [STARTUP.md](STARTUP.md) 获取详细的故障排除指南和手动启动方法。
+
 ## 项目结构
 
 ```
@@ -105,6 +153,16 @@ NewHub是一个自动化的社交媒体内容采集和发布平台。它可以�
 │   ├── handlers/       # 请求处理器
 │   ├── models/         # 数据模型
 │   └── main.go         # 主程序入口
+├── crawler-service/     # 爬虫服务
+│   ├── crawlers/       # 爬虫模块
+│   ├── main.py         # 爬虫服务入口
+│   └── requirements.txt # Python依赖
+├── start.ps1           # Windows PowerShell启动脚本
+├── start.bat           # Windows批处理启动脚本
+├── start.sh            # Linux/macOS启动脚本
+├── STARTUP.md          # 启动脚本使用指南
+├── deploy.ps1          # Windows部署脚本
+├── deploy.sh           # Linux/macOS部署脚本
 ├── Dockerfile.frontend  # 前端Docker配置
 ├── Dockerfile.backend   # 后端Docker配置
 ├── docker-compose.yml   # Docker编排配置
