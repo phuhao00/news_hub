@@ -52,16 +52,16 @@ export default function VideosPage() {
       ]);
       
       // 为视频添加创作者名称
-      const videosWithCreators = videosResponse.map((video: Video) => {
-        const creator = creatorsResponse.find((c: Creator) => c.id === video.creator_id);
+      const videosWithCreators = videosResponse && videosResponse.map((video: Video) => {
+        const creator = creatorsResponse && creatorsResponse.find((c: Creator) => c.id === video.creator_id);
         return {
           ...video,
           creator_name: creator?.name || '未知创作者'
         };
-      });
+      }) || [];
       
-      setVideos(videosWithCreators);
-      setCreators(creatorsResponse);
+      setVideos(videosWithCreators || []);
+      setCreators(creatorsResponse || []);
     } catch (error) {
       console.error('加载数据失败:', error);
       alert('加载数据失败，请重试');
@@ -117,12 +117,12 @@ export default function VideosPage() {
     return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
-  const filteredVideos = videos.filter(video => {
+  const filteredVideos = videos ? videos.filter(video => {
     if (filter.status && video.status !== filter.status) return false;
     if (filter.creator_id && video.creator_id !== filter.creator_id) return false;
     if (filter.search && !video.title.toLowerCase().includes(filter.search.toLowerCase())) return false;
     return true;
-  });
+  }) : [];
 
   if (loading) {
     return (
@@ -148,24 +148,24 @@ export default function VideosPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="aws-card">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">总视频数</h3>
-            <p className="text-3xl font-bold text-blue-600">{videos.length}</p>
+            <p className="text-3xl font-bold text-blue-600">{videos ? videos.length : 0}</p>
           </div>
           <div className="aws-card">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">已完成</h3>
             <p className="text-3xl font-bold text-green-600">
-              {videos.filter(v => v.status === 'completed').length}
+              {videos ? videos.filter(v => v.status === 'completed').length : 0}
             </p>
           </div>
           <div className="aws-card">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">处理中</h3>
             <p className="text-3xl font-bold text-blue-600">
-              {videos.filter(v => v.status === 'processing').length}
+              {videos ? videos.filter(v => v.status === 'processing').length : 0}
             </p>
           </div>
           <div className="aws-card">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">失败</h3>
             <p className="text-3xl font-bold text-red-600">
-              {videos.filter(v => v.status === 'failed').length}
+              {videos ? videos.filter(v => v.status === 'failed').length : 0}
             </p>
           </div>
         </div>
@@ -284,9 +284,9 @@ export default function VideosPage() {
         {/* 视频列表 */}
         <div className="aws-card">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            视频列表 ({filteredVideos.length})
+            视频列表 ({filteredVideos ? filteredVideos.length : 0})
           </h2>
-          {filteredVideos.length === 0 ? (
+          {!filteredVideos || filteredVideos.length === 0 ? (
             <div className="text-center py-12">
               <div className="text-gray-400 text-6xl mb-4">🎬</div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">暂无视频</h3>
@@ -294,7 +294,7 @@ export default function VideosPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredVideos.map((video) => (
+              {filteredVideos && filteredVideos.map((video) => (
                 <div key={video.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                   {/* 缩略图 */}
                   <div className="aspect-video bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
