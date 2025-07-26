@@ -1,45 +1,100 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { crawlerApi, creatorApi } from '@/utils/api';
+import { creatorApi, crawlerApi } from '@/utils/api';
 
 interface Creator {
   id: string;
   username: string;
-  displayName?: string;
   platform: string;
+  created_at: string;
+}
+
+interface CrawlerTask {
+  id: string;
+  platform: string;
+  creator_url: string;
+  limit: number;
+  status: string;
+  error?: string;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface CrawlerContent {
+  id: string;
+  task_id: string;
+  title: string;
+  content: string;
+  author: string;
+  platform: string;
+  url: string;
+  published_at?: string;
+  tags: string[];
+  images: string[];
+  video_url?: string;
+  created_at: string;
 }
 
 interface CrawlerStatus {
-  isRunning: boolean;
-  lastRunTime?: string;
-  totalPosts?: number;
-  errors?: string[];
+  status: string;
+  message: string;
+  service_url?: string;
+  last_check?: string;
 }
+
+const platformOptions = [
+  { value: 'weibo', label: '微博' },
+  { value: 'douyin', label: '抖音' },
+  { value: 'xiaohongshu', label: '小红书' },
+  { value: 'bilibili', label: 'B站' },
+];
 
 export default function CrawlerPage() {
   const [creators, setCreators] = useState<Creator[]>([]);
-  const [crawlerStatus, setCrawlerStatus] = useState<CrawlerStatus>({ isRunning: false });
+  const [crawlerStatus, setCrawlerStatus] = useState<CrawlerStatus>({ status: 'unknown', message: '检查中...' });
+  const [tasks, setTasks] = useState<CrawlerTask[]>([]);
+  const [contents, setContents] = useState<CrawlerContent[]>([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
-  const [selectedCreators, setSelectedCreators] = useState<string[]>([]);
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  
+  // 新任务表单状态
+  const [newTask, setNewTask] = useState({
+    platform: 'weibo',
+    creator_url: '',
+    limit: 10,
+  });
+
+  // 搜索模式状态
+  const [searchMode, setSearchMode] = useState<'search' | 'url'>('search');
+
+  // 定时刷新间隔（毫秒）
+  const REFRESH_INTERVAL = 10000; // 10秒
 
   useEffect(() => {
     loadData();
-    // 每30秒刷新一次状态
-    const interval = setInterval(loadCrawlerStatus, 30000);
+    
+    // 设置定时刷新
+    const interval = setInterval(() => {
+      loadCrawlerStatus();
+      loadTasks();
+      loadContents();
+    }, REFRESH_INTERVAL);
+
     return () => clearInterval(interval);
   }, []);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [creatorsData, statusData] = await Promise.all([
-        creatorApi.list(),
-        loadCrawlerStatus()
+      await Promise.all([
+        loadCreators(),
+        loadCrawlerStatus(),
+        loadTasks(),
+        loadContents(),
       ]);
-      setCreators(creatorsData || []);
     } catch (error) {
       console.error('加载数据失败:', error);
     } finally {
@@ -47,315 +102,385 @@ export default function CrawlerPage() {
     }
   };
 
+  const loadCreators = async () => {
+    try {
+      const data = await creatorApi.list();
+      setCreators(data || []);
+    } catch (error) {
+      console.error('加载创作者失败:', error);
+    }
+  };
+
   const loadCrawlerStatus = async () => {
     try {
       const status = await crawlerApi.status();
       setCrawlerStatus(status);
-      return status;
     } catch (error) {
       console.error('获取爬虫状态失败:', error);
-      return null;
+      setCrawlerStatus({ status: 'error', message: '服务不可用' });
     }
   };
 
-  const handleTriggerCrawler = async () => {
+  const loadTasks = async () => {
     try {
-      setTriggering(true);
-      const data: { creatorIds?: string[]; platforms?: string[] } = {};
-      
-      if (selectedCreators.length > 0) {
-        data.creatorIds = selectedCreators;
-      }
-      if (selectedPlatforms.length > 0) {
-        data.platforms = selectedPlatforms;
-      }
-
-      await crawlerApi.trigger(data);
-      alert('爬虫任务已触发！');
-      
-      // 延迟一下再刷新状态
-      setTimeout(loadCrawlerStatus, 2000);
+      const data = await crawlerApi.tasks.list();
+      setTasks(data.tasks || []);
     } catch (error) {
-      console.error('触发爬虫失败:', error);
-      alert('触发爬虫失败，请稍后重试');
+      console.error('加载任务列表失败:', error);
+    }
+  };
+
+  const loadContents = async () => {
+    try {
+      const data = await crawlerApi.contents.list();
+      setContents(data.contents || []);
+    } catch (error) {
+      console.error('加载内容列表失败:', error);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTask.creator_url.trim()) {
+      alert(searchMode === 'search' ? '请输入搜索关键词' : '请输入创作者URL');
+      return;
+    }
+
+    setTriggering(true);
+    try {
+      const result = await crawlerApi.trigger(newTask);
+      console.log('爬取任务创建成功:', result);
+      
+      // 重置表单
+      setNewTask({
+        platform: 'weibo',
+        creator_url: '',
+        limit: 10,
+      });
+
+      // 刷新数据
+      await loadTasks();
+      
+      // 显示成功消息
+      const message = searchMode === 'search' 
+        ? `搜索任务创建成功！正在搜索"${newTask.creator_url}"相关内容...`
+        : '爬取任务创建成功！正在处理中...';
+      alert(message);
+    } catch (error) {
+      console.error('创建爬取任务失败:', error);
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      alert(`创建任务失败: ${errorMessage}`);
     } finally {
       setTriggering(false);
     }
   };
 
-  const handleCreatorSelection = (creatorId: string) => {
-    setSelectedCreators(prev => 
-      prev.includes(creatorId)
-        ? prev.filter(id => id !== creatorId)
-        : [...prev, creatorId]
-    );
-  };
-
-  const handlePlatformSelection = (platform: string) => {
-    setSelectedPlatforms(prev => 
-      prev.includes(platform)
-        ? prev.filter(p => p !== platform)
-        : [...prev, platform]
-    );
-  };
-
-  const getPlatformIcon = (platform: string) => {
-    switch (platform) {
-      case 'weibo': return '🐦';
-      case 'douyin': return '🎵';
-      case 'xiaohongshu': return '📖';
-      case 'bilibili': return '📺';
-      default: return '📱';
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'pending': return 'text-yellow-600 bg-yellow-100';
+      case 'running': return 'text-blue-600 bg-blue-100';
+      case 'completed': return 'text-green-600 bg-green-100';
+      case 'failed': return 'text-red-600 bg-red-100';
+      default: return 'text-gray-600 bg-gray-100';
     }
   };
 
-  const getPlatformName = (platform: string) => {
-    switch (platform) {
-      case 'weibo': return '微博';
-      case 'douyin': return '抖音';
-      case 'xiaohongshu': return '小红书';
-      case 'bilibili': return '哔哩哔哩';
-      default: return platform;
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending': return '等待中';
+      case 'running': return '运行中';
+      case 'completed': return '已完成';
+      case 'failed': return '失败';
+      default: return status;
     }
   };
-
-  const platforms = ['weibo', 'douyin', 'xiaohongshu', 'bilibili'];
 
   if (loading) {
     return (
-      <main className="min-h-screen" style={{ backgroundColor: 'var(--aws-gray-50)' }}>
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-            <span className="ml-2 text-gray-600">加载中...</span>
-          </div>
+      <div className="container mx-auto p-6">
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600">加载中...</p>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="min-h-screen" style={{ backgroundColor: 'var(--aws-gray-50)' }}>
-      {/* 页面头部 */}
-      <div style={{ backgroundColor: 'var(--aws-blue)' }} className="text-white py-8">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-center justify-between">
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">爬虫管理</h1>
+        <div className="flex items-center space-x-2">
+          <div className={`px-3 py-1 rounded-full text-sm ${
+            crawlerStatus.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}>
+            {crawlerStatus.message}
+          </div>
+          <button
+            onClick={loadData}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            刷新
+          </button>
+        </div>
+      </div>
+
+      {/* 创建新任务 */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <h2 className="text-xl font-semibold mb-4">创建爬取任务</h2>
+        
+        {/* 搜索模式切换 */}
+        <div className="mb-6">
+          <div className="flex space-x-4 mb-4">
+            <button
+              type="button"
+              onClick={() => setSearchMode('search')}
+              className={`px-4 py-2 rounded-lg font-medium ${
+                searchMode === 'search'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              🔍 关键词搜索
+            </button>
+            <button
+              type="button"
+              onClick={() => setSearchMode('url')}
+              className={`px-4 py-2 rounded-lg font-medium ${
+                searchMode === 'url'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              🔗 URL爬取
+            </button>
+          </div>
+          <p className="text-sm text-gray-600">
+            {searchMode === 'search' 
+              ? '输入关键词，系统将在指定平台搜索相关内容' 
+              : '输入创作者链接或网页URL进行爬取'
+            }
+          </p>
+        </div>
+
+        <form onSubmit={handleCreateTask} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <h1 className="text-3xl font-bold mb-2">爬虫控制</h1>
-              <p className="text-gray-300">管理和控制社交媒体内容爬取任务</p>
-            </div>
-            <div className="text-right">
-              <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                crawlerStatus.isRunning 
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-gray-100 text-gray-800'
-              }`}>
-                <div className={`w-2 h-2 rounded-full mr-2 ${
-                  crawlerStatus.isRunning ? 'bg-green-500' : 'bg-gray-500'
-                }`}></div>
-                {crawlerStatus.isRunning ? '运行中' : '空闲'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* 爬虫状态 */}
-          <div className="lg:col-span-1">
-            <div className="aws-card p-6 mb-6">
-              <div className="flex items-center mb-4">
-                <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center mr-3">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-semibold">爬虫状态</h2>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600">运行状态</span>
-                  <span className={`font-medium ${
-                    crawlerStatus.isRunning ? 'text-green-600' : 'text-gray-600'
-                  }`}>
-                    {crawlerStatus.isRunning ? '运行中' : '空闲'}
-                  </span>
-                </div>
-                
-                {crawlerStatus.lastRunTime && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">最后运行</span>
-                    <span className="text-sm text-gray-500">
-                      {new Date(crawlerStatus.lastRunTime).toLocaleString('zh-CN')}
-                    </span>
-                  </div>
-                )}
-                
-                {crawlerStatus.totalPosts !== undefined && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">总内容数</span>
-                    <span className="font-medium text-blue-600">
-                      {crawlerStatus.totalPosts}
-                    </span>
-                  </div>
-                )}
-              </div>
-              
-              {crawlerStatus.errors && crawlerStatus.errors.length > 0 && (
-                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
-                  <h4 className="text-sm font-medium text-red-800 mb-2">错误信息</h4>
-                  <ul className="text-sm text-red-600 space-y-1">
-                    {crawlerStatus.errors.map((error, index) => (
-                      <li key={index}>• {error}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              
-              <button
-                onClick={loadCrawlerStatus}
-                className="w-full mt-4 aws-btn-secondary"
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                平台
+              </label>
+              <select
+                value={newTask.platform}
+                onChange={(e) => setNewTask({ ...newTask, platform: e.target.value })}
+                className="w-full p-3 border border-gray-300 rounded-lg"
               >
-                刷新状态
-              </button>
+                {platformOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {searchMode === 'search' ? '搜索关键词' : '创作者URL'}
+              </label>
+              <input
+                type={searchMode === 'search' ? 'text' : 'url'}
+                value={newTask.creator_url}
+                onChange={(e) => setNewTask({ ...newTask, creator_url: e.target.value })}
+                placeholder={
+                  searchMode === 'search' 
+                    ? '例如：科技新闻、美食推荐、旅游攻略' 
+                    : 'https://example.com/creator'
+                }
+                className="w-full p-3 border border-gray-300 rounded-lg"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                爬取数量
+              </label>
+              <input
+                type="number"
+                value={newTask.limit}
+                onChange={(e) => setNewTask({ ...newTask, limit: parseInt(e.target.value) })}
+                min="1"
+                max="50"
+                className="w-full p-3 border border-gray-300 rounded-lg"
+              />
             </div>
           </div>
-
-          {/* 爬虫控制 */}
-          <div className="lg:col-span-2">
-            <div className="aws-card p-6">
-              <div className="flex items-center mb-6">
-                <div className="w-8 h-8 bg-orange-500 rounded flex items-center justify-center mr-3">
-                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-2 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-semibold">触发爬虫任务</h2>
+          
+          {/* 提示信息 */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <span className="text-blue-600">💡</span>
               </div>
+              <div className="ml-3 text-sm text-blue-800">
+                <p className="font-medium">爬取说明：</p>
+                <ul className="mt-1 space-y-1">
+                  <li>• <strong>微博</strong>：搜索相关话题和用户动态</li>
+                  <li>• <strong>B站</strong>：搜索视频内容和UP主作品</li>
+                  <li>• <strong>小红书</strong>：搜索生活笔记和种草内容</li>
+                  <li>• <strong>抖音</strong>：由于反爬限制，提供基础搜索</li>
+                  <li>• <strong>新闻</strong>：从多个新闻源搜索相关资讯</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          
+          <button
+            type="submit"
+            disabled={triggering}
+            className="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+          >
+            {triggering ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                正在爬取中...
+              </>
+            ) : (
+              <>
+                🚀 开始{searchMode === 'search' ? '搜索' : '爬取'}任务
+              </>
+            )}
+          </button>
+        </form>
+      </div>
 
-              {/* 平台选择 */}
-              <div className="mb-6">
-                <h3 className="text-lg font-medium mb-3">选择平台（可选）</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {platforms.map((platform) => (
-                    <label
-                      key={platform}
-                      className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
-                        selectedPlatforms.includes(platform)
-                          ? 'border-orange-500 bg-orange-50'
-                          : 'border-gray-200 hover:border-orange-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedPlatforms.includes(platform)}
-                        onChange={() => handlePlatformSelection(platform)}
-                        className="sr-only"
-                      />
-                      <div className="flex items-center space-x-2">
-                        <span className="text-lg">{getPlatformIcon(platform)}</span>
-                        <span className="text-sm font-medium">{getPlatformName(platform)}</span>
+      {/* 任务列表 */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <h2 className="text-xl font-semibold mb-4">爬取任务 ({tasks.length})</h2>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  平台
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  搜索内容/URL
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  状态
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  数量
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  创建时间
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  完成时间
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {tasks.map((task) => (
+                <tr key={task.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {platformOptions.find(p => p.value === task.platform)?.label || task.platform}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="max-w-xs">
+                      {task.creator_url.startsWith('http') ? (
+                        <a 
+                          href={task.creator_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 truncate block"
+                          title={task.creator_url}
+                        >
+                          {task.creator_url}
+                        </a>
+                      ) : (
+                        <span className="text-gray-700 font-medium truncate block" title={task.creator_url}>
+                          🔍 {task.creator_url}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(task.status)}`}>
+                      {getStatusText(task.status)}
+                    </span>
+                    {task.error && (
+                      <div className="text-xs text-red-600 mt-1" title={task.error}>
+                        错误: {task.error.substring(0, 50)}...
                       </div>
-                    </label>
-                  ))}
-                </div>
-                <p className="text-sm text-gray-500 mt-2">
-                  不选择任何平台将爬取所有平台的内容
-                </p>
-              </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <span className="bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs">
+                      {task.limit} 条
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {new Date(task.created_at).toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {task.completed_at ? new Date(task.completed_at).toLocaleString() : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {tasks.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              暂无爬取任务
+            </div>
+          )}
+        </div>
+      </div>
 
-              {/* 创作者选择 */}
-              <div className="mb-6">
-                <h3 className="text-lg font-medium mb-3">选择创作者（可选）</h3>
-                {creators.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    <p>暂无创作者，请先添加创作者</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto">
-                    {creators.map((creator) => (
-                      <label
-                        key={creator.id}
-                        className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
-                          selectedCreators.includes(creator.id)
-                            ? 'border-orange-500 bg-orange-50'
-                            : 'border-gray-200 hover:border-orange-300'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedCreators.includes(creator.id)}
-                          onChange={() => handleCreatorSelection(creator.id)}
-                          className="sr-only"
-                        />
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 bg-gradient-to-r from-blue-400 to-blue-600 rounded-full flex items-center justify-center">
-                            <span className="text-white text-xs font-semibold">
-                              {(creator.displayName || creator.username).charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                          <div>
-                            <div className="font-medium text-gray-900">
-                              {creator.displayName || creator.username}
-                            </div>
-                            <div className="text-sm text-gray-500">
-                              {getPlatformName(creator.platform)}
-                            </div>
-                          </div>
-                        </div>
-                      </label>
+      {/* 爬取内容 */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <h2 className="text-xl font-semibold mb-4">爬取内容 ({contents.length})</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {contents.map((content) => (
+            <div key={content.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="font-semibold text-lg line-clamp-2">{content.title}</h3>
+                <span className="text-xs text-gray-500 ml-2 whitespace-nowrap">
+                  {platformOptions.find(p => p.value === content.platform)?.label || content.platform}
+                </span>
+              </div>
+              <p className="text-gray-600 text-sm line-clamp-3 mb-3">{content.content}</p>
+              <div className="text-xs text-gray-500 space-y-1">
+                <div>作者: {content.author}</div>
+                <div>发布: {content.published_at ? new Date(content.published_at).toLocaleString() : '未知'}</div>
+                {content.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {content.tags.map((tag, index) => (
+                      <span key={index} className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">
+                        {tag}
+                      </span>
                     ))}
                   </div>
                 )}
-                <p className="text-sm text-gray-500 mt-2">
-                  不选择任何创作者将爬取所有创作者的内容
-                </p>
               </div>
-
-              {/* 触发按钮 */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                <div className="text-sm text-gray-600">
-                  {selectedPlatforms.length > 0 && (
-                    <span>已选择 {selectedPlatforms.length} 个平台，</span>
-                  )}
-                  {selectedCreators.length > 0 && (
-                    <span>已选择 {selectedCreators.length} 个创作者</span>
-                  )}
-                  {selectedPlatforms.length === 0 && selectedCreators.length === 0 && (
-                    <span>将爬取所有平台的所有创作者内容</span>
-                  )}
-                </div>
-                <button
-                  onClick={handleTriggerCrawler}
-                  disabled={triggering || crawlerStatus.isRunning}
-                  className={`aws-btn-primary ${
-                    (triggering || crawlerStatus.isRunning) ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
+              {content.url && (
+                <a 
+                  href={content.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-block mt-2 text-blue-600 hover:text-blue-800 text-sm"
                 >
-                  {triggering ? (
-                    <span className="flex items-center">
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      触发中...
-                    </span>
-                  ) : crawlerStatus.isRunning ? (
-                    '爬虫运行中'
-                  ) : (
-                    '开始爬取'
-                  )}
-                </button>
-              </div>
+                  查看原文 →
+                </a>
+              )}
             </div>
-          </div>
+          ))}
         </div>
+        {contents.length === 0 && (
+          <div className="text-center py-8 text-gray-500">
+            暂无爬取内容
+          </div>
+        )}
       </div>
-    </main>
+    </div>
   );
 }

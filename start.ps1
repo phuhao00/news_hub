@@ -92,7 +92,7 @@ finally {
 # Start services
 Write-Host "`n4. Starting services..." -ForegroundColor Cyan
 
-# Start backend service (port 8082)
+# Start backend service (port 8080 - from config.json)
 Write-Host "Starting backend service..." -ForegroundColor Yellow
 Push-Location server
 $backendJob = Start-Job -ScriptBlock {
@@ -102,14 +102,14 @@ $backendJob = Start-Job -ScriptBlock {
 Pop-Location
 
 # Wait for backend service to start
-if (-not (Wait-ForService -Port 8082 -ServiceName "Backend Service")) {
+if (-not (Wait-ForService -Port 8080 -ServiceName "Backend Service")) {
     Write-Host "Backend service startup failed, stopping all services" -ForegroundColor Red
     Get-Job | Stop-Job
     Get-Job | Remove-Job
     exit 1
 }
 
-# Start crawler service (port 8001)
+# Start crawler service (port 8001 - from config.json)
 Write-Host "Starting crawler service..." -ForegroundColor Yellow
 Push-Location crawler-service
 $crawlerJob = Start-Job -ScriptBlock {
@@ -127,7 +127,7 @@ if (-not (Wait-ForService -Port 8001 -ServiceName "Crawler Service")) {
     exit 1
 }
 
-# Start frontend service (port 3001)
+# Start frontend service (port 3000 - from config.json)
 Write-Host "Starting frontend service..." -ForegroundColor Yellow
 $frontendJob = Start-Job -ScriptBlock {
     Set-Location $using:PWD
@@ -135,7 +135,7 @@ $frontendJob = Start-Job -ScriptBlock {
 }
 
 # Wait for frontend service to start
-if (-not (Wait-ForService -Port 3001 -ServiceName "Frontend Service")) {
+if (-not (Wait-ForService -Port 3000 -ServiceName "Frontend Service")) {
     Write-Host "Frontend service startup failed, stopping all services" -ForegroundColor Red
     Get-Job | Stop-Job
     Get-Job | Remove-Job
@@ -143,8 +143,8 @@ if (-not (Wait-ForService -Port 3001 -ServiceName "Frontend Service")) {
 }
 
 Write-Host "`n=== All services started successfully! ===" -ForegroundColor Green
-Write-Host "Frontend service: http://localhost:3001" -ForegroundColor Cyan
-Write-Host "Backend service: http://localhost:8082" -ForegroundColor Cyan
+Write-Host "Frontend service: http://localhost:3000" -ForegroundColor Cyan
+Write-Host "Backend service: http://localhost:8080" -ForegroundColor Cyan
 Write-Host "Crawler service: http://localhost:8001" -ForegroundColor Cyan
 Write-Host "`nPress Ctrl+C to stop all services" -ForegroundColor Yellow
 

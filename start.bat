@@ -106,8 +106,8 @@ start "NewsHub Frontend" cmd /k "npm run dev"
 
 echo.
 echo === All services are starting ===
-echo Frontend service: http://localhost:3001
-echo Backend service: http://localhost:8082
+echo Frontend service: http://localhost:3000
+echo Backend service: http://localhost:8080
 echo Crawler service: http://localhost:8001
 echo.
 echo Please wait a few seconds for services to fully start...

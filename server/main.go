@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -88,17 +87,33 @@ func main() {
 		// 爬虫服务代理接口 (转发到Python服务)
 		api.POST("/crawler/trigger", handlers.ProxyCrawlerTrigger)
 		api.GET("/crawler/status", handlers.ProxyCrawlerStatus)
+		api.GET("/crawler/platforms", handlers.GetCrawlerPlatforms)
+
+		// 爬取任务管理接口
+		api.POST("/crawler/tasks", handlers.CreateCrawlerTask)
+		api.GET("/crawler/tasks", handlers.GetCrawlerTasks)
+		api.GET("/crawler/tasks/:id", handlers.GetCrawlerTask)
+		api.PUT("/crawler/tasks/:id/status", handlers.UpdateCrawlerTaskStatus)
+
+		// 爬取内容接口
+		api.GET("/crawler/contents", handlers.GetCrawlerContents)
+	}
+
+	// 加载配置文件
+	if err := config.LoadConfig(); err != nil {
+		log.Printf("警告：加载配置文件失败：%v", err)
 	}
 
 	// 获取端口配置
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	port := config.GetServerPort()
+	host := config.GetServerHost()
+
+	log.Printf("后端服务配置: host=%s, port=%s", host, port)
 
 	// 创建HTTP服务器
+	addr := host + ":" + port
 	srv := &http.Server{
-		Addr:    ":" + port,
+		Addr:    addr,
 		Handler: r,
 	}
 

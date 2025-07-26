@@ -61,3 +61,140 @@ logs
 # Storage
 storage/
 storage/videos/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.#*
+
+# Backup files
+*.bak
+*.backup
+*.orig
+*.save
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+dump.rdb
+*.dump
+
+# SSL/Certificates
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+*.pem
+
+# Cache
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# Config overrides
+config.local.json
+config.override.json
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock
+
+# Package managers
+.npm
+.yarn-integrity
+.pnpm-debug.log*
+.pnpm-store/
+
+# Build tools
+.grunt
+bower_components
+
+# Media files (if not needed in repo)
+*.mp4
+*.avi
+*.mov
+*.wmv
+*.flv
+*.webm
+*.mkv
+*.m4v
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Local development
+.local/
+local/
+*.local
+
+# Monitoring and metrics
+.monitor/
+metrics/

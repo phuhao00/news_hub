@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:8082/api';
+const API_BASE_URL = 'http://localhost:8080/api';
 
 // 创作者相关API
 export const creatorApi = {
@@ -67,20 +67,97 @@ export const publishApi = {
 
 // 爬虫相关API
 export const crawlerApi = {
-  trigger: async (data: { creatorIds?: string[]; platforms?: string[] }) => {
+  trigger: async (data: { platform: string; creator_url: string; limit?: number }) => {
     const response = await fetch(`${API_BASE_URL}/crawler/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!response.ok) throw new Error('Failed to trigger crawler');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to trigger crawler: ${errorText}`);
+    }
     return response.json();
   },
 
   status: async () => {
     const response = await fetch(`${API_BASE_URL}/crawler/status`);
-    if (!response.ok) throw new Error('Failed to get crawler status');
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to get crawler status: ${errorText}`);
+    }
     return response.json();
+  },
+
+  platforms: async () => {
+    const response = await fetch(`${API_BASE_URL}/crawler/platforms`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to get crawler platforms: ${errorText}`);
+    }
+    return response.json();
+  },
+
+  // 任务管理相关API
+  tasks: {
+    create: async (data: { platform: string; creator_url: string; limit?: number }) => {
+      const response = await fetch(`${API_BASE_URL}/crawler/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create crawler task: ${errorText}`);
+      }
+      return response.json();
+    },
+
+    list: async () => {
+      const response = await fetch(`${API_BASE_URL}/crawler/tasks`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to get crawler tasks: ${errorText}`);
+      }
+      return response.json();
+    },
+
+    get: async (id: string) => {
+      const response = await fetch(`${API_BASE_URL}/crawler/tasks/${id}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to get crawler task: ${errorText}`);
+      }
+      return response.json();
+    },
+
+    updateStatus: async (id: string, data: { status: string; error?: string }) => {
+      const response = await fetch(`${API_BASE_URL}/crawler/tasks/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update task status: ${errorText}`);
+      }
+      return response.json();
+    },
+  },
+
+  // 内容管理相关API
+  contents: {
+    list: async (taskId?: string) => {
+      const params = new URLSearchParams();
+      if (taskId) params.append('task_id', taskId);
+      
+      const response = await fetch(`${API_BASE_URL}/crawler/contents?${params}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to get crawler contents: ${errorText}`);
+      }
+      return response.json();
+    },
   },
 };
 

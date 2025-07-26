@@ -1,0 +1,28 @@
+{
+  "services": {
+    "backend": {
+      "port": 8080,
+      "host": "0.0.0.0"
+    },
+    "crawler": {
+      "port": 8001,
+      "host": "0.0.0.0"
+    },
+    "frontend": {
+      "port": 3000,
+      "host": "0.0.0.0"
+    }
+  },
+  "database": {
+    "mongodb": {
+      "uri": "mongodb://localhost:27017",
+      "database": "newshub"
+    }
+  },
+  "crawler": {
+    "headless": true,
+    "timeout": 30,
+    "max_concurrent": 5,
+    "log_level": "INFO"
+  }
+} 

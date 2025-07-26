@@ -98,7 +98,7 @@ cd ..
 # Start services
 echo "\n4. Starting services..."
 
-# Start backend service (port 8082)
+# Start backend service (port 8080 - from config.json)
 echo "Starting backend service..."
 cd server
 go run main.go &
@@ -106,13 +106,13 @@ BACKEND_PID=$!
 cd ..
 
 # Wait for backend service to start
-if ! wait_for_service 8082 "Backend Service"; then
+if ! wait_for_service 8080 "Backend Service"; then
     echo "Backend service startup failed, stopping all services"
     kill $BACKEND_PID 2>/dev/null
     exit 1
 fi
 
-# Start crawler service (port 8001)
+# Start crawler service (port 8001 - from config.json)
 echo "Starting crawler service..."
 cd crawler-service
 source .venv/bin/activate
@@ -127,21 +127,21 @@ if ! wait_for_service 8001 "Crawler Service"; then
     exit 1
 fi
 
-# Start frontend service (port 3001)
+# Start frontend service (port 3000 - from config.json)
 echo "Starting frontend service..."
 npm run dev &
 FRONTEND_PID=$!
 
 # Wait for frontend service to start
-if ! wait_for_service 3001 "Frontend Service"; then
+if ! wait_for_service 3000 "Frontend Service"; then
     echo "Frontend service startup failed, stopping all services"
     kill $BACKEND_PID $CRAWLER_PID $FRONTEND_PID 2>/dev/null
     exit 1
 fi
 
 echo "\n=== All services started successfully! ==="
-echo "Frontend service: http://localhost:3001"
-echo "Backend service: http://localhost:8082"
+echo "Frontend service: http://localhost:3000"
+echo "Backend service: http://localhost:8080"
 echo "Crawler service: http://localhost:8001"
 echo "\nPress Ctrl+C to stop all services"
 

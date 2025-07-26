@@ -1,292 +1,303 @@
-# NewHub - 社交媒体动态采集与发布平台
+# NewsHub - 智能内容爬取与管理平台
 
-## 项目简介
+一个现代化的内容爬取、管理和发布平台，支持多平台**真实搜索**和智能内容提取。
 
-NewHub是一个自动化的社交媒体内容采集和发布平台。它可以自动收集指定创作者在各大社交平台（微博、抖音、小红书、哔哩哔哩）的最新动态，生成视频内容，并支持一键发布到多个平台。
+## 🚀 核心功能
 
-## 技术栈
+### 🕷️ 真实爬取引擎 ⭐ **NEW**
+- **真实数据源**: 通过百度、搜狗、必应等搜索引擎获取实际网络内容
+- **多平台支持**: 微博、B站、小红书、抖音、新闻网站
+- **智能搜索**: 关键词搜索和URL直接爬取两种模式
+- **内容提取**: 自动提取标题、内容、作者、图片、视频等
+- **反爬处理**: 智能User-Agent轮换、请求间隔控制
+- **质量过滤**: 智能内容质量检查和相关性验证
 
-- 前端：Next.js + TypeScript + Tailwind CSS
-- 后端：Go + Gin
-- 数据库：MongoDB
-- 部署：Docker + Nginx
+### 📊 任务管理系统
+- **实时状态跟踪**: pending → running → completed/failed
+- **数据持久化**: 任务记录和爬取内容永久存储
+- **定时刷新**: 前端每10秒自动更新任务状态
+- **错误处理**: 详细的错误信息和重试机制
 
-## 功能特点
+### 🎯 用户界面
+- **双模式切换**: 关键词搜索 / URL爬取
+- **实时监控**: 任务进度、成功率、内容数量
+- **美观展示**: 卡片式内容展示，支持图片和视频
+- **响应式设计**: 完美适配桌面和移动设备
 
-- 多平台内容采集
-- 自动视频生成
-- 多平台一键发布
-- 实时任务状态跟踪
-- 容器化部署
+## 🏗️ 系统架构
 
-## 系统要求
+```
+前端 (Next.js)
+    ↓
+Go后端 (数据处理 & API管理)
+    ↓
+Python爬虫服务 (真实搜索 & 内容提取)
+    ↓
+真实数据源 (百度、搜狗、必应等搜索引擎)
+    ↓
+MongoDB (数据存储)
+```
 
-- Docker
-- Docker Compose
-- PowerShell（Windows）或 Bash（Linux/macOS）
+### 服务端口配置
+- 前端: `http://localhost:3000`
+- Go后端: `http://localhost:8080`
+- Python爬虫: `http://localhost:8001`
+- MongoDB: `localhost:27017`
 
-## 快速开始
+## 🛠️ 技术栈
 
-### 方式一：一键部署（推荐）
+### 前端
+- **Next.js 14**: React框架，App Router
+- **TypeScript**: 类型安全
+- **Tailwind CSS**: 现代化样式
+- **定时刷新**: 实时数据更新
 
-1. 克隆项目：
-   ```bash
-   git clone <repository-url>
-   cd newshub
-   ```
+### 后端
+- **Go**: 高性能API服务
+- **Gin**: Web框架
+- **MongoDB**: 文档数据库
+- **配置文件管理**: JSON配置替代环境变量
 
-2. 配置环境变量：
-   - 复制`.env.example`到`.env`
-   - 修改环境变量配置
+### 爬虫服务 ⭐ **真实爬取**
+- **Python 3.9+**: 主要语言
+- **FastAPI**: 异步API框架
+- **BeautifulSoup4**: HTML解析
+- **Requests**: HTTP客户端
+- **真实数据源**: 百度、搜狗、必应搜索引擎
+- **智能解析**: 多策略内容提取和质量检查
 
-3. 一键部署：
-   Windows：
-   ```powershell
-   .\deploy.ps1
-   ```
+## 🚀 快速开始
 
-   Linux/macOS：
-   ```bash
-   chmod +x deploy.sh
-   ./deploy.sh
-   ```
+### 安装依赖
 
-4. 访问应用：
-   - 前端界面：http://localhost
-   - API接口：http://localhost/api
-   - MongoDB：localhost:27015
+```bash
+# 安装前端依赖
+npm install
 
-### 方式二：本地开发
+# 安装Go依赖
+cd server
+go mod tidy
 
-1. 克隆项目并安装依赖：
-   ```bash
-   git clone <repository-url>
-   cd newshub
-   make install  # 或手动安装前后端依赖
-   ```
+# 安装Python依赖
+cd ../crawler-service
+pip install -r requirements.txt
+```
 
-2. 初始化数据库：
-   ```bash
-   # 使用脚本初始化（推荐）
-   make init-db
-   
-   # 或使用Go工具初始化
-   make init-db-go
-   
-   # 或手动执行
-   # Windows: .\init-database.ps1
-   # Linux/macOS: ./init-database.sh
-   ```
+### 配置数据库
 
-3. 启动开发服务：
-   ```bash
-   # 启动前端（新终端）
-   make dev-frontend
-   
-   # 启动后端（新终端）
-   make dev-backend
-   ```
+```bash
+# Windows
+.\init-database.bat
 
-4. 访问应用：
-   - 前端界面：http://localhost:3000
-   - 后端API：http://localhost:8080
-   - MongoDB：mongodb://localhost:27015
+# Linux/Mac
+./init-database.sh
 
-### 方式三：一键启动脚本（开发环境）
+# PowerShell
+.\init-database.ps1
+```
 
-项目提供了跨平台的一键启动脚本，可以快速启动所有开发服务：
+### 启动服务
 
-#### Windows 用户
+```bash
+# Windows
+.\start.bat
 
-**PowerShell 脚本（推荐）**：
-```powershell
+# Linux/Mac
+./start.sh
+
+# PowerShell
 .\start.ps1
 ```
 
-**批处理脚本**：
-```cmd
-start.bat
-```
-
-#### Linux/macOS 用户
+### 测试爬虫功能
 
 ```bash
-chmod +x start.sh
-./start.sh
+# 进入爬虫服务目录
+cd crawler-service
+
+# 运行测试脚本
+python test_crawler.py
 ```
 
-#### 脚本功能
+### 访问应用
 
-- **自动环境检查**：检测 Node.js、Python、Go 是否已安装
-- **依赖管理**：自动安装前端依赖和 Python 虚拟环境
-- **服务启动**：按顺序启动后端、爬虫、前端服务
-- **健康检查**：等待服务完全启动并验证可用性
-- **端口管理**：自动检测端口占用情况
-- **错误处理**：启动失败时自动清理和错误提示
+- **主页**: http://localhost:3000
+- **爬虫管理**: http://localhost:3000/crawler
+- **API文档**: http://localhost:8001/docs
+- **健康检查**: http://localhost:8080/health
 
-#### 服务地址
+## 📖 使用指南
 
-启动成功后，可以通过以下地址访问：
+### 1. 创建爬取任务
 
-- **前端服务**：http://localhost:3001
-- **后端服务**：http://localhost:8082
-- **爬虫服务**：http://localhost:8001
+#### 关键词搜索模式 ⭐ **推荐**
+1. 选择"🔍 关键词搜索"
+2. 选择目标平台（微博、B站、小红书等）
+3. 输入搜索关键词，如：
+   - `人工智能` - 搜索AI相关内容
+   - `美食推荐` - 搜索美食内容
+   - `旅游攻略` - 搜索旅游信息
+   - `编程教程` - 搜索技术教程
+4. 设置爬取数量（1-50条）
+5. 点击"🚀 开始搜索任务"
 
-#### 停止服务
+#### URL爬取模式
+1. 选择"🔗 URL爬取"
+2. 输入具体的URL或创作者链接
+3. 系统自动识别平台并爬取内容
 
-在脚本运行的终端中按 `Ctrl+C` 即可停止所有服务。
+### 2. 监控任务状态
 
-#### 故障排除
+- **等待中** 🟡: 任务已创建，等待执行
+- **运行中** 🔵: 正在爬取内容
+- **已完成** 🟢: 成功完成爬取
+- **失败** 🔴: 爬取失败，查看错误信息
 
-如果启动脚本遇到问题，请参考 [STARTUP.md](STARTUP.md) 获取详细的故障排除指南和手动启动方法。
+### 3. 查看爬取内容
 
-## 项目结构
+- 任务完成后，内容自动显示在"爬取内容"区域
+- 支持查看标题、内容、作者、发布时间
+- 点击"查看原文"访问原始链接
+- 图片和视频链接自动提取
 
+## 🔧 配置文件
+
+### 全局配置 (`config.json`)
+```json
+{
+  "services": {
+    "backend": {"port": 8080, "host": "0.0.0.0"},
+    "crawler": {"port": 8001, "host": "0.0.0.0"},
+    "frontend": {"port": 3000, "host": "0.0.0.0"}
+  },
+  "database": {
+    "mongodb": {
+      "uri": "mongodb://localhost:27017",
+      "database": "newshub"
+    }
+  }
+}
 ```
-├── src/                  # 前端源代码
-│   ├── app/             # Next.js应用页面
-│   ├── components/      # React组件
-│   ├── types/          # TypeScript类型定义
-│   └── utils/          # 工具函数
-├── server/              # 后端源代码
-│   ├── config/         # 配置文件
-│   ├── handlers/       # 请求处理器
-│   ├── models/         # 数据模型
-│   └── main.go         # 主程序入口
-├── crawler-service/     # 爬虫服务
-│   ├── crawlers/       # 爬虫模块
-│   ├── main.py         # 爬虫服务入口
-│   └── requirements.txt # Python依赖
-├── start.ps1           # Windows PowerShell启动脚本
-├── start.bat           # Windows批处理启动脚本
-├── start.sh            # Linux/macOS启动脚本
-├── STARTUP.md          # 启动脚本使用指南
-├── deploy.ps1          # Windows部署脚本
-├── deploy.sh           # Linux/macOS部署脚本
-├── Dockerfile.frontend  # 前端Docker配置
-├── Dockerfile.backend   # 后端Docker配置
-├── docker-compose.yml   # Docker编排配置
-├── nginx.conf          # Nginx配置
-└── init-mongo.js       # MongoDB初始化脚本
+
+### 爬虫配置 (`crawler-service/config.json`)
+```json
+{
+  "server": {"port": 8001, "host": "0.0.0.0"},
+  "crawler": {
+    "headless": true,
+    "timeout": 30,
+    "max_concurrent": 5
+  },
+  "platforms": {
+    "weibo": {"enabled": true, "timeout": 60},
+    "bilibili": {"enabled": true, "timeout": 60}
+  }
+}
 ```
 
-## 数据库管理
+## 📊 支持的平台
 
-### 初始化数据库
+| 平台 | 搜索支持 | 数据来源 | 内容类型 | 特殊说明 |
+|------|----------|----------|----------|----------|
+| 微博 | ✅ | 搜索引擎聚合 | 帖子、话题、动态 | 通过搜索引擎获取相关内容 |
+| B站 | ✅ | 搜索引擎聚合 | 视频、UP主、弹幕 | 视频内容和元数据提取 |
+| 小红书 | ✅ | 搜索引擎聚合 | 笔记、种草、生活分享 | 生活内容丰富 |
+| 抖音 | ✅ | 搜索引擎聚合 | 短视频、创作者 | 通过第三方渠道获取 |
+| 新闻 | ✅ | 多源新闻聚合 | 文章、资讯 | 百度、搜狗、必应新闻 |
 
-项目提供了多种数据库初始化方式：
+## 🛡️ 真实爬取策略
 
-1. **脚本初始化（推荐）**：
-   ```bash
-   # Windows
-   .\init-database.ps1
-   
-   # Linux/macOS
-   ./init-database.sh
-   
-   # 或使用Makefile
-   make init-db
-   ```
+### 数据源策略
+- **搜索引擎聚合**: 通过百度、搜狗、必应等搜索引擎获取内容
+- **多源验证**: 使用多个数据源交叉验证内容质量
+- **智能过滤**: 基于关键词匹配和内容相关性过滤
 
-2. **Go工具初始化**：
-   ```bash
-   cd server/cmd/init-db
-   go run main.go
-   
-   # 或使用Makefile
-   make init-db-go
-   ```
+### 反爬机制
+- **智能请求头**: 模拟真实浏览器行为
+- **请求间隔**: 避免频率过高被封
+- **错误重试**: 自动重试失败的请求
+- **代理支持**: 可配置代理池（可选）
 
-3. **Docker方式**：
-   ```bash
-   # 启动MongoDB容器
-   make start-db
-   
-   # 执行初始化
-   make init-db
-   ```
+### 内容质量保证
+- **相关性检查**: 确保内容与搜索词相关
+- **长度过滤**: 过滤过短或无意义的内容
+- **广告过滤**: 自动识别和过滤广告内容
+- **重复检测**: 避免重复内容
 
-### 数据库操作
+## 📈 监控与日志
+
+### 系统指标
+- 访问 `/metrics` 查看系统指标
+- 任务成功率、响应时间统计
+- 内存和CPU使用情况
+
+### 日志系统
+- Go后端日志: 自动轮转，JSON格式
+- Python服务日志: 详细的爬取过程
+- 前端错误监控: 实时错误追踪
+
+## 🔄 开发模式
 
 ```bash
-# 启动数据库
-make start-db
+# 前端开发服务器
+npm run dev
 
-# 停止数据库
-make stop-db
+# 后端热重载
+cd server && go run main.go
 
-# 清理数据库（谨慎使用）
-make clean-db
+# Python服务开发模式
+cd crawler-service && uvicorn main:app --reload --port 8001
+
+# 测试爬虫功能
+cd crawler-service && python test_crawler.py
 ```
 
-## 开发指南
+## 📦 生产部署
 
-### 本地开发
-
-使用Makefile命令简化开发流程：
-
-```bash
-# 查看所有可用命令
-make help
-
-# 安装依赖
-make install
-
-# 初始化数据库
-make init-db
-
-# 启动开发环境
-make dev
-
-# 分别启动前后端
-make dev-frontend  # 前端：http://localhost:3000
-make dev-backend   # 后端：http://localhost:8080
-
-# 检查环境
-make check
-```
-
-### 手动开发
-
-1. 前端开发：
-   ```bash
-   npm install
-   npm run dev
-   ```
-
-2. 后端开发：
-   ```bash
-   cd server
-   go mod download
-   go run main.go
-   ```
-
-### 构建部署
-
-使用Docker Compose进行构建和部署：
-
+### Docker部署
 ```bash
 # 构建镜像
 docker-compose build
 
 # 启动服务
 docker-compose up -d
-
-# 查看日志
-docker-compose logs -f
-
-# 停止服务
-docker-compose down
 ```
 
-## 贡献指南
+### 传统部署
+1. 编译Go二进制文件
+2. 构建Next.js生产版本
+3. 配置Nginx反向代理
+4. 启动MongoDB和Python服务
 
-1. Fork项目
-2. 创建特性分支
-3. 提交更改
-4. 推送到分支
-5. 创建Pull Request
+## 🤝 贡献指南
 
-## 许可证
+1. Fork本仓库
+2. 创建功能分支: `git checkout -b feature/amazing-feature`
+3. 提交更改: `git commit -m 'Add some AmazingFeature'`
+4. 推送分支: `git push origin feature/amazing-feature`
+5. 提交Pull Request
 
-[MIT License](LICENSE)
+## 📝 许可证
+
+本项目采用 MIT 许可证 - 详情请查看 [LICENSE](LICENSE) 文件。
+
+## 🆘 常见问题
+
+### Q: 为什么不直接爬取平台网站？
+A: 现代社交媒体平台都有严格的反爬机制，直接爬取容易被封禁。我们通过搜索引擎聚合的方式获取相关内容，更加稳定可靠。
+
+### Q: 爬取的内容是真实的吗？
+A: 是的！我们从真实的搜索引擎获取内容，经过智能解析和质量过滤，确保内容的真实性和相关性。
+
+### Q: 如何增加新的平台支持？
+A: 在 `crawler-service/main.py` 中添加新的爬取方法，参考现有平台实现。
+
+### Q: 数据库连接失败怎么办？
+A: 确保MongoDB服务正在运行，检查连接配置是否正确。
+
+### Q: 如何测试爬虫功能？
+A: 运行 `python crawler-service/test_crawler.py` 来测试所有平台的爬取功能。
+
+---
+
+🎉 **现在就开始体验强大的真实内容爬取功能吧！**
