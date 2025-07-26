@@ -48,6 +48,11 @@ func GetPosts(c *gin.Context) {
 		return
 	}
 
+	// Ensure we always return an array, never null
+	if posts == nil {
+		posts = []models.Post{}
+	}
+
 	c.JSON(http.StatusOK, posts)
 }
 

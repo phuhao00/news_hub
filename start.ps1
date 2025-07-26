@@ -1,162 +1,128 @@
 #!/usr/bin/env pwsh
-# NewsHub One-Click Startup Script
-# Start frontend, backend and crawler services
+# NewsHub 项目启动脚本 (PowerShell)
+Write-Host "🚀 正在启动 NewsHub 项目..." -ForegroundColor Green
 
-Write-Host "=== NewsHub One-Click Startup Script ===" -ForegroundColor Green
-Write-Host "Starting all NewsHub application services..." -ForegroundColor Yellow
+# 检查必要的工具
+Write-Host "📋 检查系统环境..." -ForegroundColor Yellow
 
-# Check if running in correct directory
-if (-not (Test-Path "package.json")) {
-    Write-Host "Error: Please run this script in NewsHub project root directory" -ForegroundColor Red
+# 检查 Node.js
+if (!(Get-Command "node" -ErrorAction SilentlyContinue)) {
+    Write-Host "❌ 未找到 Node.js，请先安装 Node.js" -ForegroundColor Red
     exit 1
 }
 
-# Function: Check if port is occupied
-function Test-Port {
-    param([int]$Port)
+# 检查 Go
+if (!(Get-Command "go" -ErrorAction SilentlyContinue)) {
+    Write-Host "❌ 未找到 Go，请先安装 Go" -ForegroundColor Red
+    exit 1
+}
+
+# 检查 Python
+if (!(Get-Command "python" -ErrorAction SilentlyContinue)) {
+    Write-Host "❌ 未找到 Python，请先安装 Python" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "✅ 系统环境检查完成" -ForegroundColor Green
+
+# 启动 MongoDB (如果没有运行)
+Write-Host "🗄️ 启动 MongoDB..." -ForegroundColor Yellow
+$mongoProcess = Get-Process -Name "mongod" -ErrorAction SilentlyContinue
+if (-not $mongoProcess) {
     try {
-        $connection = Test-NetConnection -ComputerName localhost -Port $Port -InformationLevel Quiet -WarningAction SilentlyContinue
-        return $connection
+        Start-Process "mongod" -ArgumentList "--dbpath", ".\mongodb_data" -WindowStyle Hidden
+        Start-Sleep -Seconds 3
+        Write-Host "✅ MongoDB 已启动" -ForegroundColor Green
+    } catch {
+        Write-Host "⚠️ MongoDB 启动失败，请手动启动 MongoDB" -ForegroundColor Yellow
     }
-    catch {
-        return $false
-    }
+} else {
+    Write-Host "✅ MongoDB 已在运行" -ForegroundColor Green
 }
 
-# Function: Wait for service to start
-function Wait-ForService {
-    param([int]$Port, [string]$ServiceName, [int]$TimeoutSeconds = 30)
-    
-    Write-Host "Waiting for $ServiceName to start (port $Port)..." -ForegroundColor Yellow
-    $elapsed = 0
-    
-    while ($elapsed -lt $TimeoutSeconds) {
-        if (Test-Port -Port $Port) {
-            Write-Host "✓ $ServiceName started" -ForegroundColor Green
-            return $true
-        }
-        Start-Sleep -Seconds 1
-        $elapsed++
-    }
-    
-    Write-Host "✗ $ServiceName startup timeout" -ForegroundColor Red
-    return $false
-}
-
-# Check and install frontend dependencies
-Write-Host "`n1. Checking frontend dependencies..." -ForegroundColor Cyan
-if (-not (Test-Path "node_modules")) {
-    Write-Host "Installing frontend dependencies..." -ForegroundColor Yellow
+# 安装前端依赖
+Write-Host "📦 安装前端依赖..." -ForegroundColor Yellow
+if (Test-Path "package.json") {
     npm install
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Frontend dependencies installation failed" -ForegroundColor Red
-        exit 1
-    }
+    Write-Host "✅ 前端依赖安装完成" -ForegroundColor Green
+} else {
+    Write-Host "❌ 未找到 package.json" -ForegroundColor Red
 }
 
-# Check and install crawler service dependencies
-Write-Host "`n2. Checking crawler service dependencies..." -ForegroundColor Cyan
-Push-Location crawler-service
-try {
-    if (-not (Test-Path ".venv")) {
-        Write-Host "Creating Python virtual environment..." -ForegroundColor Yellow
-        python -m venv .venv
-    }
-    
-    # Activate virtual environment and install dependencies
-    & ".venv\Scripts\Activate.ps1"
-    pip install -r requirements.txt
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Crawler service dependencies installation failed" -ForegroundColor Red
-        exit 1
-    }
-}
-finally {
-    Pop-Location
-}
-
-# Check Go environment and backend dependencies
-Write-Host "`n3. Checking backend service..." -ForegroundColor Cyan
-Push-Location server
-try {
+# 安装后端依赖
+Write-Host "📦 安装后端依赖..." -ForegroundColor Yellow
+Set-Location "server"
+if (Test-Path "go.mod") {
     go mod tidy
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Backend dependencies check failed" -ForegroundColor Red
-        exit 1
-    }
+    Write-Host "✅ 后端依赖安装完成" -ForegroundColor Green
+} else {
+    Write-Host "❌ 未找到 go.mod" -ForegroundColor Red
 }
-finally {
-    Pop-Location
+Set-Location ".."
+
+# 安装爬虫服务依赖
+Write-Host "📦 安装爬虫服务依赖..." -ForegroundColor Yellow
+Set-Location "crawler-service"
+if (Test-Path "requirements.txt") {
+    pip install -r requirements.txt
+    Write-Host "✅ 爬虫服务依赖安装完成" -ForegroundColor Green
+} else {
+    Write-Host "❌ 未找到 requirements.txt" -ForegroundColor Red
 }
+Set-Location ".."
 
-# Start services
-Write-Host "`n4. Starting services..." -ForegroundColor Cyan
-
-# Start backend service (port 8080 - from config.json)
-Write-Host "Starting backend service..." -ForegroundColor Yellow
-Push-Location server
-$backendJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD
-    go run main.go
-}
-Pop-Location
-
-# Wait for backend service to start
-if (-not (Wait-ForService -Port 8080 -ServiceName "Backend Service")) {
-    Write-Host "Backend service startup failed, stopping all services" -ForegroundColor Red
-    Get-Job | Stop-Job
-    Get-Job | Remove-Job
-    exit 1
+# 初始化数据库
+Write-Host "🗄️ 数据库初始化..." -ForegroundColor Yellow
+if (Test-Path "init-mongo.js") {
+    Write-Host "💡 数据库初始化脚本存在，如需初始化请手动运行" -ForegroundColor Yellow
 }
 
-# Start crawler service (port 8001 - from config.json)
-Write-Host "Starting crawler service..." -ForegroundColor Yellow
-Push-Location crawler-service
-$crawlerJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD
-    & ".venv\Scripts\Activate.ps1"
-    python main.py
-}
-Pop-Location
+Write-Host "🎉 准备工作完成，正在启动服务..." -ForegroundColor Green
+Write-Host ""
 
-# Wait for crawler service to start
-if (-not (Wait-ForService -Port 8001 -ServiceName "Crawler Service")) {
-    Write-Host "Crawler service startup failed, stopping all services" -ForegroundColor Red
-    Get-Job | Stop-Job
-    Get-Job | Remove-Job
-    exit 1
-}
+# 启动后端服务
+Write-Host "🚀 启动后端服务 (端口: 8082)..." -ForegroundColor Cyan
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd server; go run main.go" -WindowStyle Normal
 
-# Start frontend service (port 3000 - from config.json)
-Write-Host "Starting frontend service..." -ForegroundColor Yellow
-$frontendJob = Start-Job -ScriptBlock {
-    Set-Location $using:PWD
-    npm run dev
-}
+Start-Sleep -Seconds 2
 
-# Wait for frontend service to start
-if (-not (Wait-ForService -Port 3000 -ServiceName "Frontend Service")) {
-    Write-Host "Frontend service startup failed, stopping all services" -ForegroundColor Red
-    Get-Job | Stop-Job
-    Get-Job | Remove-Job
-    exit 1
-}
+# 启动爬虫服务
+Write-Host "🕷️ 启动爬虫服务 (端口: 8001)..." -ForegroundColor Cyan
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd crawler-service; python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload" -WindowStyle Normal
 
-Write-Host "`n=== All services started successfully! ===" -ForegroundColor Green
-Write-Host "Frontend service: http://localhost:3000" -ForegroundColor Cyan
-Write-Host "Backend service: http://localhost:8080" -ForegroundColor Cyan
-Write-Host "Crawler service: http://localhost:8001" -ForegroundColor Cyan
-Write-Host "`nPress Ctrl+C to stop all services" -ForegroundColor Yellow
+Start-Sleep -Seconds 3
 
-# Wait for user interruption
+# 启动前端服务
+Write-Host "🌐 启动前端服务 (端口: 3001)..." -ForegroundColor Cyan
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "npm run dev" -WindowStyle Normal
+
+Start-Sleep -Seconds 5
+
+Write-Host ""
+Write-Host "🎉 NewsHub 项目启动完成！" -ForegroundColor Green
+Write-Host ""
+Write-Host "📊 服务地址:" -ForegroundColor Yellow
+Write-Host "  前端应用: http://localhost:3001" -ForegroundColor White
+Write-Host "  后端API: http://localhost:8082" -ForegroundColor White
+Write-Host "  爬虫服务: http://localhost:8001" -ForegroundColor White
+Write-Host "  API文档: http://localhost:8001/docs" -ForegroundColor White
+Write-Host ""
+Write-Host "🔧 系统监控:" -ForegroundColor Yellow
+Write-Host "  健康检查: http://localhost:8082/health" -ForegroundColor White
+Write-Host "  系统指标: http://localhost:8082/metrics" -ForegroundColor White
+Write-Host ""
+Write-Host "⭐ 开始使用 NewsHub 智能内容管理平台吧！" -ForegroundColor Green
+Write-Host ""
+
+# 等待一下然后打开浏览器
+Start-Sleep -Seconds 3
 try {
-    while ($true) {
-        Start-Sleep -Seconds 1
-    }
+    Start-Process "http://localhost:3001"
+    Write-Host "🌐 已在浏览器中打开 NewsHub 应用" -ForegroundColor Green
+} catch {
+    Write-Host "💡 请手动在浏览器中访问: http://localhost:3001" -ForegroundColor Yellow
 }
-finally {
-    Write-Host "`nStopping all services..." -ForegroundColor Yellow
-    Get-Job | Stop-Job
-    Get-Job | Remove-Job
-    Write-Host "All services stopped" -ForegroundColor Green
-}
+
+Write-Host ""
+Write-Host "按任意键退出..." -ForegroundColor Gray
+$null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')

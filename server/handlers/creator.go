@@ -20,8 +20,23 @@ func CreateCreator(c *gin.Context) {
 		return
 	}
 
+	// 设置默认值
+	if creator.DisplayName == "" {
+		creator.DisplayName = creator.Username
+	}
+	if creator.CrawlInterval == 0 {
+		creator.CrawlInterval = 60 // 默认60分钟
+	}
+	creator.CrawlStatus = "idle"
+	creator.AutoCrawlEnabled = true // 默认启用自动爬取
 	creator.CreatedAt = time.Now()
 	creator.UpdatedAt = time.Now()
+
+	// 计算下次爬取时间
+	if creator.AutoCrawlEnabled {
+		nextCrawl := time.Now().Add(time.Duration(creator.CrawlInterval) * time.Minute)
+		creator.NextCrawlAt = &nextCrawl
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -52,6 +67,11 @@ func GetCreators(c *gin.Context) {
 	if err := cursor.All(ctx, &creators); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Ensure we always return an array, never null
+	if creators == nil {
+		creators = []models.Creator{}
 	}
 
 	c.JSON(http.StatusOK, creators)

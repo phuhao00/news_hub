@@ -40,7 +40,7 @@ func GenerateVideo(c *gin.Context) {
 	coll := config.GetDB().Collection("videos")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	_, err := coll.InsertOne(ctx, video)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存视频记录失败"})
@@ -70,6 +70,11 @@ func GetVideos(c *gin.Context) {
 	if err := cursor.All(ctx, &videos); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析视频数据失败"})
 		return
+	}
+
+	// Ensure we always return an array, never null
+	if videos == nil {
+		videos = []models.Video{}
 	}
 
 	c.JSON(http.StatusOK, videos)

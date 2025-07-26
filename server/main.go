@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"newshub/config"
+	"newshub/crawler"
 	"newshub/handlers"
 	"newshub/middleware"
 	"newshub/utils"
@@ -31,6 +32,11 @@ func main() {
 		log.Fatalf("初始化存储目录失败：%v\n", err)
 	}
 
+	// 启动定时爬虫服务
+	crawlerService := crawler.NewScheduledCrawlerService()
+	crawlerService.Start()
+	log.Println("✅ 定时爬虫服务已启动")
+
 	// 注册自定义验证器
 	middleware.RegisterCustomValidators()
 
@@ -51,9 +57,9 @@ func main() {
 
 	// 配置CORS
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:3001"},
+		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:3001", "http://localhost:3002"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		AllowCredentials: true,
 	}))
 
@@ -71,13 +77,13 @@ func main() {
 		api.DELETE("/creators/:id", handlers.DeleteCreator)
 
 		// 视频相关接口
-		api.POST("/videos", handlers.GenerateVideo)
+		api.POST("/videos/generate", handlers.GenerateVideo)
 		api.GET("/videos", handlers.GetVideos)
 		api.GET("/videos/:id", handlers.GetVideo)
 
 		// 发布相关接口
 		api.POST("/publish", handlers.CreatePublishTask)
-		api.GET("/publish", handlers.GetPublishTasks)
+		api.GET("/publish/tasks", handlers.GetPublishTasks)
 
 		// 帖子相关接口
 		api.GET("/posts", handlers.GetPosts)

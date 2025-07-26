@@ -2,13 +2,17 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"newshub/config"
@@ -79,6 +83,11 @@ func GetCrawlerTasks(c *gin.Context) {
 		log.Printf("解析爬取任务列表失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析爬取任务列表失败"})
 		return
+	}
+
+	// Ensure we always return an array, never null
+	if tasks == nil {
+		tasks = []models.CrawlerTask{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -204,6 +213,11 @@ func GetCrawlerContents(c *gin.Context) {
 		return
 	}
 
+	// Ensure we always return an array, never null
+	if contents == nil {
+		contents = []models.CrawlerContent{}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"contents": contents,
 		"total":    len(contents),
@@ -221,24 +235,51 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 	defer cancel()
 
 	var contents []interface{}
+	duplicateCount := 0
+
 	for _, post := range posts {
 		postMap, ok := post.(map[string]interface{})
 		if !ok {
 			continue
 		}
 
+		// 生成内容哈希
+		contentText := getStringValue(postMap, "content")
+		title := getStringValue(postMap, "title")
+		combinedContent := title + "|" + contentText
+		contentHash := generateContentHash(combinedContent)
+
+		// 检查内容是否已存在（基于哈希）
+		platform := getStringValue(postMap, "platform")
+		author := getStringValue(postMap, "author")
+		url := getStringValue(postMap, "url")
+
+		isDuplicate, err := checkContentDuplicate(ctx, db, contentHash, platform, author, url)
+		if err != nil {
+			log.Printf("检查内容重复失败: %v", err)
+			continue
+		}
+
+		if isDuplicate {
+			duplicateCount++
+			log.Printf("跳过重复内容: hash=%s, title=%s", contentHash[:8], title)
+			continue
+		}
+
 		content := models.CrawlerContent{
-			ID:        primitive.NewObjectID(),
-			TaskID:    taskID,
-			Title:     getStringValue(postMap, "title"),
-			Content:   getStringValue(postMap, "content"),
-			Author:    getStringValue(postMap, "author"),
-			Platform:  getStringValue(postMap, "platform"),
-			URL:       getStringValue(postMap, "url"),
-			Tags:      getStringArrayValue(postMap, "tags"),
-			Images:    getStringArrayValue(postMap, "images"),
-			VideoURL:  getStringValue(postMap, "video_url"),
-			CreatedAt: time.Now(),
+			ID:          primitive.NewObjectID(),
+			TaskID:      taskID,
+			Title:       title,
+			Content:     contentText,
+			ContentHash: contentHash,
+			Author:      author,
+			Platform:    platform,
+			URL:         url,
+			OriginID:    getStringValue(postMap, "origin_id"),
+			Tags:        getStringArrayValue(postMap, "tags"),
+			Images:      getStringArrayValue(postMap, "images"),
+			VideoURL:    getStringValue(postMap, "video_url"),
+			CreatedAt:   time.Now(),
 		}
 
 		// 处理发布时间
@@ -251,16 +292,60 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 		contents = append(contents, content)
 	}
 
+	var savedCount int
 	if len(contents) > 0 {
 		_, err := db.Collection("crawler_contents").InsertMany(ctx, contents)
 		if err != nil {
 			log.Printf("保存爬取内容失败: %v", err)
 			return err
 		}
-		log.Printf("成功保存 %d 条爬取内容", len(contents))
+		savedCount = len(contents)
 	}
 
+	log.Printf("内容处理完成: 总数=%d, 保存=%d, 去重=%d", len(posts), savedCount, duplicateCount)
 	return nil
+}
+
+// generateContentHash 生成内容哈希
+func generateContentHash(content string) string {
+	// 标准化内容：去除多余空格、换行等
+	normalized := strings.TrimSpace(strings.ReplaceAll(content, "\n", " "))
+	normalized = strings.ReplaceAll(normalized, "\r", "")
+
+	hash := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(hash[:])
+}
+
+// checkContentDuplicate 检查内容是否重复
+func checkContentDuplicate(ctx context.Context, db *mongo.Database, contentHash, platform, author, url string) (bool, error) {
+	// 优先检查内容哈希
+	filter := bson.M{"content_hash": contentHash}
+
+	count, err := db.Collection("crawler_contents").CountDocuments(ctx, filter)
+	if err != nil {
+		return false, err
+	}
+
+	if count > 0 {
+		return true, nil
+	}
+
+	// 如果有URL，也检查URL是否重复
+	if url != "" {
+		urlFilter := bson.M{
+			"url":      url,
+			"platform": platform,
+		}
+		urlCount, err := db.Collection("crawler_contents").CountDocuments(ctx, urlFilter)
+		if err != nil {
+			return false, err
+		}
+		if urlCount > 0 {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // 辅助函数

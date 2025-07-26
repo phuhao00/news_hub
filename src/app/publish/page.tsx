@@ -21,9 +21,12 @@ export default function PublishPage() {
   const loadPublishTasks = async () => {
     try {
       const data = await publishApi.list();
-      setPublishTasks(data);
+      // Ensure data is always an array, handle null/undefined responses
+      setPublishTasks(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('加载发布任务失败:', error);
+      // Set empty array on error to prevent null reference issues
+      setPublishTasks([]);
       alert('加载发布任务失败');
     }
   };
@@ -47,7 +50,10 @@ export default function PublishPage() {
         description
       });
 
-      setPublishTasks([...publishTasks, result]);
+      // Ensure we handle the case where result might be null
+      if (result) {
+        setPublishTasks([...publishTasks, result]);
+      }
       // 清空表单
       setSelectedPlatforms([]);
       setDescription('');

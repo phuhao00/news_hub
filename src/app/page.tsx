@@ -10,6 +10,10 @@ export default function Home() {
   const [newCreator, setNewCreator] = useState({
     username: '',
     platform: 'weibo' as SocialPlatform,
+    profileUrl: '',
+    displayName: '',
+    autoCrawlEnabled: true,
+    crawlInterval: 60,
   });
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({ totalPosts: 0, isRunning: false });
@@ -23,9 +27,10 @@ export default function Home() {
   const loadCreators = async () => {
     try {
       const data = await creatorApi.list();
-      setCreators(data);
+      setCreators(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error('加载创作者失败:', error);
+      setCreators([]); // Set empty array on error
       alert('加载创作者失败');
     }
   };
@@ -51,7 +56,14 @@ export default function Home() {
     try {
       const result = await creatorApi.create(newCreator);
       setCreators([...creators, result]);
-      setNewCreator({ username: '', platform: 'weibo' });
+      setNewCreator({ 
+        username: '', 
+        platform: 'weibo',
+        profileUrl: '',
+        displayName: '',
+        autoCrawlEnabled: true,
+        crawlInterval: 60,
+      });
     } catch (error) {
       console.error('添加创作者失败:', error);
       alert('添加创作者失败');
@@ -169,57 +181,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* 快速导航 */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <Link href="/content" className="aws-card p-4 hover:shadow-lg transition-shadow group">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
-                <span className="text-lg">📝</span>
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">内容管理</h3>
-                <p className="text-sm text-gray-500">查看爬取的内容</p>
-              </div>
-            </div>
-          </Link>
-          
-          <Link href="/crawler" className="aws-card p-4 hover:shadow-lg transition-shadow group">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center group-hover:bg-purple-200 transition-colors">
-                <span className="text-lg">🕷️</span>
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">爬虫控制</h3>
-                <p className="text-sm text-gray-500">管理爬取任务</p>
-              </div>
-            </div>
-          </Link>
-          
-          <Link href="/generate" className="aws-card p-4 hover:shadow-lg transition-shadow group">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200 transition-colors">
-                <span className="text-lg">🎬</span>
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">视频生成</h3>
-                <p className="text-sm text-gray-500">AI生成视频</p>
-              </div>
-            </div>
-          </Link>
-          
-          <Link href="/publish" className="aws-card p-4 hover:shadow-lg transition-shadow group">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center group-hover:bg-orange-200 transition-colors">
-                <span className="text-lg">📤</span>
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">发布管理</h3>
-                <p className="text-sm text-gray-500">管理发布任务</p>
-              </div>
-            </div>
-          </Link>
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* 添加创作者表单 */}
           <div className="aws-card p-6">
@@ -263,6 +224,69 @@ export default function Home() {
                   required
                   disabled={loading}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
+                  创作者主页URL
+                </label>
+                <input
+                  type="url"
+                  value={newCreator.profileUrl}
+                  onChange={(e) => setNewCreator({ ...newCreator, profileUrl: e.target.value })}
+                  className="aws-input w-full"
+                  placeholder="请输入创作者主页链接，用于自动爬取内容"
+                  required
+                  disabled={loading}
+                />
+                <p className="text-xs text-gray-500 mt-1">💡 这是系统自动爬取内容的URL</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
+                  显示名称
+                </label>
+                <input
+                  type="text"
+                  value={newCreator.displayName}
+                  onChange={(e) => setNewCreator({ ...newCreator, displayName: e.target.value })}
+                  className="aws-input w-full"
+                  placeholder="创作者显示名称（可选）"
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={newCreator.autoCrawlEnabled}
+                      onChange={(e) => setNewCreator({ ...newCreator, autoCrawlEnabled: e.target.checked })}
+                      className="rounded"
+                      disabled={loading}
+                    />
+                    <span className="text-sm font-medium" style={{ color: 'var(--aws-gray-900)' }}>
+                      启用自动爬取
+                    </span>
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1">🔄 定时获取最新动态</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
+                    爬取间隔 (分钟)
+                  </label>
+                  <input
+                    type="number"
+                    value={newCreator.crawlInterval}
+                    onChange={(e) => setNewCreator({ ...newCreator, crawlInterval: parseInt(e.target.value) || 60 })}
+                    className="aws-input w-full"
+                    min="30"
+                    max="1440"
+                    disabled={loading || !newCreator.autoCrawlEnabled}
+                  />
+                </div>
               </div>
               
               <button
@@ -322,20 +346,66 @@ export default function Home() {
                           {(creator.displayName || creator.username).charAt(0).toUpperCase()}
                         </span>
                       </div>
-                      <div>
-                        <h3 className="font-medium text-gray-900">{creator.displayName || creator.username}</h3>
-                        <p className="text-sm text-gray-500 capitalize">{creator.platform}</p>
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2">
+                          <h3 className="font-medium text-gray-900">{creator.displayName || creator.username}</h3>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            creator.crawlStatus === 'crawling' ? 'bg-blue-100 text-blue-800' :
+                            creator.crawlStatus === 'failed' ? 'bg-red-100 text-red-800' :
+                            creator.autoCrawlEnabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {creator.crawlStatus === 'crawling' && '🔄 爬取中'}
+                            {creator.crawlStatus === 'failed' && '❌ 失败'}
+                            {creator.crawlStatus === 'idle' && creator.autoCrawlEnabled && '✅ 自动'}
+                            {creator.crawlStatus === 'idle' && !creator.autoCrawlEnabled && '⏸️ 已停用'}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500">
+                          <span className="capitalize">{creator.platform}</span>
+                          {creator.autoCrawlEnabled && (
+                            <>
+                              <span>•</span>
+                              <span>每 {creator.crawlInterval} 分钟</span>
+                            </>
+                          )}
+                          {creator.lastCrawlAt && (
+                            <>
+                              <span>•</span>
+                              <span>上次: {new Date(creator.lastCrawlAt).toLocaleString()}</span>
+                            </>
+                          )}
+                        </div>
+                        {creator.crawlError && (
+                          <p className="text-xs text-red-500 mt-1">
+                            ⚠️ {creator.crawlError}
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <button
-                      className="text-gray-400 hover:text-red-500 transition-colors p-2"
-                      onClick={() => handleDeleteCreator(creator.id)}
-                      title="删除创作者"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      {creator.profileUrl && (
+                        <a
+                          href={creator.profileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-gray-400 hover:text-blue-500 transition-colors p-2"
+                          title="查看主页"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                        </a>
+                      )}
+                      <button
+                        className="text-gray-400 hover:text-red-500 transition-colors p-2"
+                        onClick={() => handleDeleteCreator(creator.id)}
+                        title="删除创作者"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -8,11 +8,22 @@ import (
 
 // Creator 创作者模型
 type Creator struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
-	Username  string             `bson:"username" json:"username" validate:"required"`
-	Platform  string             `bson:"platform" json:"platform" validate:"required"`
-	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+	ID               primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Username         string             `bson:"username" json:"username" validate:"required"`
+	Platform         string             `bson:"platform" json:"platform" validate:"required"`
+	ProfileURL       string             `bson:"profile_url" json:"profile_url"`                           // 创作者主页URL，用于爬取
+	DisplayName      string             `bson:"display_name" json:"display_name"`                         // 显示名称
+	Avatar           string             `bson:"avatar,omitempty" json:"avatar,omitempty"`                 // 头像URL
+	Description      string             `bson:"description,omitempty" json:"description,omitempty"`       // 描述
+	FollowerCount    int                `bson:"follower_count,omitempty" json:"follower_count,omitempty"` // 粉丝数
+	AutoCrawlEnabled bool               `bson:"auto_crawl_enabled" json:"auto_crawl_enabled"`             // 是否启用自动爬取
+	CrawlInterval    int                `bson:"crawl_interval" json:"crawl_interval"`                     // 爬取间隔（分钟）
+	LastCrawlAt      *time.Time         `bson:"last_crawl_at,omitempty" json:"last_crawl_at,omitempty"`   // 上次爬取时间
+	NextCrawlAt      *time.Time         `bson:"next_crawl_at,omitempty" json:"next_crawl_at,omitempty"`   // 下次爬取时间
+	CrawlStatus      string             `bson:"crawl_status" json:"crawl_status"`                         // idle, crawling, failed
+	CrawlError       string             `bson:"crawl_error,omitempty" json:"crawl_error,omitempty"`       // 爬取错误信息
+	CreatedAt        time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt        time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
 // Post 帖子模型
@@ -70,9 +81,11 @@ type CrawlerContent struct {
 	TaskID      primitive.ObjectID `bson:"task_id" json:"task_id"`
 	Title       string             `bson:"title" json:"title"`
 	Content     string             `bson:"content" json:"content"`
+	ContentHash string             `bson:"content_hash" json:"content_hash"` // 内容哈希，用于去重
 	Author      string             `bson:"author" json:"author"`
 	Platform    string             `bson:"platform" json:"platform"`
 	URL         string             `bson:"url" json:"url"`
+	OriginID    string             `bson:"origin_id,omitempty" json:"origin_id,omitempty"` // 平台原始ID
 	PublishedAt *time.Time         `bson:"published_at,omitempty" json:"published_at,omitempty"`
 	Tags        []string           `bson:"tags" json:"tags"`
 	Images      []string           `bson:"images" json:"images"`

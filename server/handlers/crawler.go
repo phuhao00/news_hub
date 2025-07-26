@@ -53,6 +53,35 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 		triggerReq.Limit = 10
 	}
 
+	// 检查是否已有相同的任务在运行
+	db := config.GetDB()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	existingTaskFilter := map[string]interface{}{
+		"platform":    triggerReq.Platform,
+		"creator_url": triggerReq.CreatorURL,
+		"status":      map[string]interface{}{"$in": []string{"pending", "running"}},
+	}
+
+	existingTaskCount, err := db.Collection("crawler_tasks").CountDocuments(ctx, existingTaskFilter)
+	if err != nil {
+		log.Printf("检查重复任务失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "检查重复任务失败"})
+		return
+	}
+
+	if existingTaskCount > 0 {
+		log.Printf("检测到重复任务: platform=%s, creator_url=%s", triggerReq.Platform, triggerReq.CreatorURL)
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "任务已存在",
+			"message": "相同的爬取任务正在进行中，请稍后再试",
+			"platform": triggerReq.Platform,
+			"creator_url": triggerReq.CreatorURL,
+		})
+		return
+	}
+
 	// 创建爬取任务记录
 	task := models.CrawlerTask{
 		ID:         primitive.NewObjectID(),
@@ -65,11 +94,7 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 	}
 
 	// 保存任务到数据库
-	db := config.GetDB()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := db.Collection("crawler_tasks").InsertOne(ctx, task)
+	_, err = db.Collection("crawler_tasks").InsertOne(ctx, task)
 	if err != nil {
 		log.Printf("创建爬取任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建爬取任务失败"})

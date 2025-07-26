@@ -51,19 +51,25 @@ export default function VideosPage() {
         creatorApi.list()
       ]);
       
+      // Ensure arrays are never null
+      const safeVideosResponse = Array.isArray(videosResponse) ? videosResponse : [];
+      const safeCreatorsResponse = Array.isArray(creatorsResponse) ? creatorsResponse : [];
+      
       // 为视频添加创作者名称
-      const videosWithCreators = videosResponse && videosResponse.map((video: Video) => {
-        const creator = creatorsResponse && creatorsResponse.find((c: Creator) => c.id === video.creator_id);
+      const videosWithCreators = safeVideosResponse.map((video: Video) => {
+        const creator = safeCreatorsResponse.find((c: Creator) => c.id === video.creator_id);
         return {
           ...video,
           creator_name: creator?.name || '未知创作者'
         };
-      }) || [];
+      });
       
-      setVideos(videosWithCreators || []);
-      setCreators(creatorsResponse || []);
+      setVideos(videosWithCreators);
+      setCreators(safeCreatorsResponse);
     } catch (error) {
       console.error('加载数据失败:', error);
+      setVideos([]); // Set empty arrays on error
+      setCreators([]);
       alert('加载数据失败，请重试');
     } finally {
       setLoading(false);
