@@ -9,11 +9,16 @@ const Navigation = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const navItems = [
-    { href: '/', label: '创作者管理', icon: '👥' },
-    { href: '/content', label: '内容管理', icon: '📝' },
-    { href: '/crawler', label: '爬虫控制', icon: '🕷️' },
-    { href: '/generate', label: '视频生成', icon: '🎬' },
-    { href: '/publish', label: '发布管理', icon: '📤' },
+    { href: '/', label: 'Dashboard', icon: '🏠' },
+    { href: '/content', label: 'Content', icon: '📝' },
+    { href: '/crawler', label: 'Crawler', icon: '🕷️' },
+    { href: '/generate', label: 'Generate', icon: '🎬' },
+    { href: '/videos', label: 'Videos', icon: '📹' },
+    { href: '/publish', label: 'Publish', icon: '📤' },
+    { href: '/analytics', label: 'Analytics', icon: '📊' },
+    { href: '/automation', label: 'Automation', icon: '🤖' },
+    { href: '/ai-assistant', label: 'AI Assistant', icon: '🧠' },
+    { href: '/team', label: 'Team', icon: '👥' },
   ];
 
   return (
