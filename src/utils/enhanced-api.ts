@@ -445,3 +445,141 @@ export const settingsApi = {
     });
   },
 };
+
+// Marketplace API
+export const marketplaceApi = {
+  getPlugins: async (category?: string) => {
+    const url = category 
+      ? `${API_BASE_URL}/marketplace/plugins?category=${category}`
+      : `${API_BASE_URL}/marketplace/plugins`;
+    return apiCall(url);
+  },
+
+  getTemplates: async (category?: string) => {
+    const url = category 
+      ? `${API_BASE_URL}/marketplace/templates?category=${category}`
+      : `${API_BASE_URL}/marketplace/templates`;
+    return apiCall(url);
+  },
+
+  installPlugin: async (pluginId: string) => {
+    return apiCall(`${API_BASE_URL}/marketplace/plugins/${pluginId}/install`, {
+      method: 'POST',
+    });
+  },
+
+  uninstallPlugin: async (pluginId: string) => {
+    return apiCall(`${API_BASE_URL}/marketplace/plugins/${pluginId}/uninstall`, {
+      method: 'DELETE',
+    });
+  },
+
+  downloadTemplate: async (templateId: string) => {
+    return apiCall(`${API_BASE_URL}/marketplace/templates/${templateId}/download`, {
+      method: 'POST',
+    });
+  },
+
+  getInstalledPlugins: async () => {
+    return apiCall(`${API_BASE_URL}/marketplace/installed`);
+  },
+
+  ratePlugin: async (pluginId: string, rating: number, review?: string) => {
+    return apiCall(`${API_BASE_URL}/marketplace/plugins/${pluginId}/rate`, {
+      method: 'POST',
+      body: JSON.stringify({ rating, review }),
+    });
+  },
+};
+
+// Integrations API
+export const integrationsApi = {
+  list: async () => {
+    return apiCall(`${API_BASE_URL}/integrations`);
+  },
+
+  connect: async (integrationId: string, config: any) => {
+    return apiCall(`${API_BASE_URL}/integrations/${integrationId}/connect`, {
+      method: 'POST',
+      body: JSON.stringify(config),
+    });
+  },
+
+  disconnect: async (integrationId: string) => {
+    return apiCall(`${API_BASE_URL}/integrations/${integrationId}/disconnect`, {
+      method: 'DELETE',
+    });
+  },
+
+  updateConfig: async (integrationId: string, config: any) => {
+    return apiCall(`${API_BASE_URL}/integrations/${integrationId}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  testConnection: async (integrationId: string) => {
+    return apiCall(`${API_BASE_URL}/integrations/${integrationId}/test`, {
+      method: 'POST',
+    });
+  },
+
+  getStatus: async (integrationId: string) => {
+    return apiCall(`${API_BASE_URL}/integrations/${integrationId}/status`);
+  },
+};
+
+// Monitoring API
+export const monitoringApi = {
+  getSystemHealth: async () => {
+    return apiCall(`${API_BASE_URL}/monitoring/health`);
+  },
+
+  getMetrics: async (timeRange: string = '1h') => {
+    return apiCall(`${API_BASE_URL}/monitoring/metrics?range=${timeRange}`);
+  },
+
+  getAlerts: async () => {
+    return apiCall(`${API_BASE_URL}/monitoring/alerts`);
+  },
+
+  createAlert: async (data: any) => {
+    return apiCall(`${API_BASE_URL}/monitoring/alerts`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateAlert: async (alertId: string, data: any) => {
+    return apiCall(`${API_BASE_URL}/monitoring/alerts/${alertId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  deleteAlert: async (alertId: string) => {
+    return apiCall(`${API_BASE_URL}/monitoring/alerts/${alertId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  acknowledgeAlert: async (alertId: string) => {
+    return apiCall(`${API_BASE_URL}/monitoring/alerts/${alertId}/acknowledge`, {
+      method: 'POST',
+    });
+  },
+
+  resolveAlert: async (alertId: string) => {
+    return apiCall(`${API_BASE_URL}/monitoring/alerts/${alertId}/resolve`, {
+      method: 'POST',
+    });
+  },
+
+  getPerformanceMetrics: async (service: string, timeRange: string = '1h') => {
+    return apiCall(`${API_BASE_URL}/monitoring/performance/${service}?range=${timeRange}`);
+  },
+
+  getLogs: async (service: string, level: string = 'all', limit: number = 100) => {
+    return apiCall(`${API_BASE_URL}/monitoring/logs/${service}?level=${level}&limit=${limit}`);
+  },
+};
