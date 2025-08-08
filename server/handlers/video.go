@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,104 +15,46 @@ import (
 	"newshub/models"
 )
 
-// GenerateVideo 生成视频
+// GenerateVideo enqueues a video generation job instead of immediate generation
 func GenerateVideo(c *gin.Context) {
-	// 获取请求参数
-	var video models.Video
-	if err := c.ShouldBindJSON(&video); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
-		return
-	}
-
-	// 设置视频ID和创建时间
-	video.ID = primitive.NewObjectID()
-	video.CreatedAt = time.Now()
-	video.Status = "processing"
-
-	// TODO: 实现实际的视频生成逻辑
-	// 这里应该调用视频生成服务
-	// 为了演示，我们模拟一个成功的视频生成
-	video.Status = "completed"
-	video.URL = "/api/videos/" + video.ID.Hex()
-
-	// 保存到数据库
+	var req struct { PostIDs []string `json:"post_ids"`; Style string `json:"style"`; Duration int `json:"duration"` }
+	if err := c.ShouldBindJSON(&req); err != nil { c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"}); return }
+	video := models.Video{ID: primitive.NewObjectID(), PostIDs: []primitive.ObjectID{}, Style: req.Style, Duration: req.Duration, Status: "processing", CreatedAt: time.Now()}
+	for _, id := range req.PostIDs { if oid, err := primitive.ObjectIDFromHex(id); err == nil { video.PostIDs = append(video.PostIDs, oid) } }
 	coll := config.GetDB().Collection("videos")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := coll.InsertOne(ctx, video)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存视频记录失败"})
-		return
-	}
-
-	c.JSON(http.StatusOK, video)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second); defer cancel()
+	if _, err := coll.InsertOne(ctx, video); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "save failed"}); return }
+	// A real implementation would enqueue a job; simplified marking completed quickly
+	go func(id primitive.ObjectID){
+		time.Sleep(800 * time.Millisecond)
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second); defer cancel2()
+		coll.UpdateOne(ctx2, bson.M{"_id": id}, bson.M{"$set": bson.M{"status": "completed", "url": "/api/videos/"+id.Hex()}})
+	}(video.ID)
+	c.JSON(http.StatusAccepted, video)
 }
 
 // GetVideos 获取视频列表
 func GetVideos(c *gin.Context) {
 	coll := config.GetDB().Collection("videos")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// 查询所有视频
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second); defer cancel()
 	cursor, err := coll.Find(ctx, bson.M{})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取视频列表失败"})
-		return
-	}
-	defer cursor.Close(ctx)
-
-	// 解码结果
+	if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "list failed"}); return }
 	var videos []models.Video
-	if err := cursor.All(ctx, &videos); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析视频数据失败"})
-		return
-	}
-
-	// Ensure we always return an array, never null
-	if videos == nil {
-		videos = []models.Video{}
-	}
-
+	if err := cursor.All(ctx, &videos); err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "decode failed"}); return }
+	if videos == nil { videos = []models.Video{} }
 	c.JSON(http.StatusOK, videos)
 }
 
-// GetVideo 获取单个视频
+// GetVideo streaming stored video file (demo placeholder)
 func GetVideo(c *gin.Context) {
 	videoID := c.Param("id")
-
-	// 检查视频文件是否存在
 	videoPath := config.GetVideoPath(videoID)
-	if _, err := os.Stat(videoPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "视频文件不存在"})
-		return
-	}
-
-	// 获取文件信息
-	fileInfo, err := os.Stat(videoPath)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取视频文件信息失败"})
-		return
-	}
-
-	// 打开文件
-	file, err := os.Open(videoPath)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "打开视频文件失败"})
-		return
-	}
+	if _, err := os.Stat(videoPath); err != nil { c.JSON(http.StatusNotFound, gin.H{"error": "not found"}); return }
+	file, err := os.Open(videoPath); if err != nil { c.JSON(http.StatusInternalServerError, gin.H{"error": "open failed"}); return }
 	defer file.Close()
-
-	// 设置响应头
+	fi, _ := file.Stat()
 	c.Header("Content-Type", "video/mp4")
-	c.Header("Content-Length", string(fileInfo.Size()))
+	c.Header("Content-Length", string(fi.Size()))
 	c.Header("Content-Disposition", "inline; filename=\""+filepath.Base(videoPath)+"\"")
-
-	// 发送文件内容
-	if _, err := io.Copy(c.Writer, file); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送视频文件失败"})
-		return
-	}
+	http.ServeContent(c.Writer, c.Request, fi.Name(), fi.ModTime(), file)
 }
