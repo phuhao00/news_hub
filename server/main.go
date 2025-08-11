@@ -9,11 +9,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
+	"context"
 	"newshub/config"
 	"newshub/crawler"
 	"newshub/handlers"
 	"newshub/middleware"
 	"newshub/utils"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func main() {
@@ -25,6 +29,11 @@ func main() {
 	// 连接数据库
 	if err := config.ConnectDB(); err != nil {
 		log.Fatalf("连接数据库失败：%v\n", err)
+	}
+
+	// 如无数据则写入默认创作者种子数据
+	if err := seedCreatorsIfEmpty(); err != nil {
+		log.Printf("种子数据写入失败：%v\n", err)
 	}
 
 	// 初始化存储目录
@@ -80,10 +89,13 @@ func main() {
 		api.POST("/videos/generate", handlers.GenerateVideo)
 		api.GET("/videos", handlers.GetVideos)
 		api.GET("/videos/:id", handlers.GetVideo)
+		api.PUT("/videos/:id", handlers.UpdateVideo)
 
 		// 发布相关接口
 		api.POST("/publish", handlers.CreatePublishTask)
 		api.GET("/publish/tasks", handlers.GetPublishTasks)
+		api.GET("/publish/:id", handlers.GetPublishTask)
+		api.PUT("/publish/:id", handlers.UpdatePublishTask)
 
 		// 帖子相关接口
 		api.GET("/posts", handlers.GetPosts)
@@ -133,4 +145,60 @@ func main() {
 
 	// 等待中断信号以优雅地关闭服务器
 	utils.GracefulShutdown(srv)
+}
+
+// seedCreatorsIfEmpty 如果 creators 集合为空，写入示例创作者数据
+func seedCreatorsIfEmpty() error {
+	db := config.GetDB()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	count, err := db.Collection("creators").CountDocuments(ctx, bson.M{})
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	now := time.Now()
+	creators := []interface{}{
+		bson.M{
+			"_id":                primitive.NewObjectID(),
+			"username":           "tech_blogger",
+			"platform":           "weibo",
+			"profile_url":        "https://weibo.com/u/123456",
+			"display_name":       "科技博主",
+			"auto_crawl_enabled": true,
+			"crawl_interval":     60,
+			"crawl_status":       "idle",
+			"created_at":         now,
+			"updated_at":         now,
+		},
+		bson.M{
+			"_id":                primitive.NewObjectID(),
+			"username":           "news_reporter",
+			"platform":           "douyin",
+			"profile_url":        "https://www.douyin.com/user/abcdef",
+			"display_name":       "新闻记者",
+			"auto_crawl_enabled": true,
+			"crawl_interval":     90,
+			"crawl_status":       "idle",
+			"created_at":         now,
+			"updated_at":         now,
+		},
+		bson.M{
+			"_id":                primitive.NewObjectID(),
+			"username":           "lifestyle_vlogger",
+			"platform":           "xiaohongshu",
+			"profile_url":        "https://www.xiaohongshu.com/user/xyz",
+			"display_name":       "生活博主",
+			"auto_crawl_enabled": true,
+			"crawl_interval":     120,
+			"crawl_status":       "idle",
+			"created_at":         now,
+			"updated_at":         now,
+		},
+	}
+	_, err = db.Collection("creators").InsertMany(ctx, creators)
+	return err
 }

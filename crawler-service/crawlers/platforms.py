@@ -939,7 +939,7 @@ class NewsCrawler(PlatformCrawler):
                     url = title_elem.get('href', '')
                     
                     # 提取新闻摘要
-                    abstract_elem = elem.select_one('.c-abstract, .abstract, '.desc, p')
+                    abstract_elem = elem.select_one('.c-abstract, .abstract, .desc, p')
                     abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
                     
                     # 提取时间信息

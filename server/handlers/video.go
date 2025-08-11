@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -84,36 +85,77 @@ func GetVideos(c *gin.Context) {
 func GetVideo(c *gin.Context) {
 	videoID := c.Param("id")
 
-	// 检查视频文件是否存在
+	// 先返回视频元信息（数据库中）
+	coll := config.GetDB().Collection("videos")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var video models.Video
+	objID, err := primitive.ObjectIDFromHex(videoID)
+	if err == nil {
+		_ = coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&video)
+	}
+
+	// 同时检查视频文件是否存在并允许下载
 	videoPath := config.GetVideoPath(videoID)
-	if _, err := os.Stat(videoPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "视频文件不存在"})
+	if st, err := os.Stat(videoPath); err == nil {
+		// 支持通过查询参数 ?download=1 下载
+		if c.Query("download") == "1" {
+			file, err := os.Open(videoPath)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "打开视频文件失败"})
+				return
+			}
+			defer file.Close()
+			c.Header("Content-Type", "video/mp4")
+			c.Header("Content-Length", fmt.Sprintf("%d", st.Size()))
+			c.Header("Content-Disposition", "attachment; filename=\""+filepath.Base(videoPath)+"\"")
+			if _, err := io.Copy(c.Writer, file); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "发送视频文件失败"})
+			}
+			return
+		}
+		// 文件存在时返回基本元数据
+		c.JSON(http.StatusOK, gin.H{
+			"id":         videoID,
+			"status":     "completed",
+			"size":       st.Size(),
+			"path":       videoPath,
+			"url":        "/api/videos/" + videoID + "?download=1",
+			"created_at": video.CreatedAt,
+		})
 		return
 	}
 
-	// 获取文件信息
-	fileInfo, err := os.Stat(videoPath)
+	// 文件不存在，返回数据库记录或404
+	if video.ID.IsZero() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "视频不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, video)
+}
+
+// UpdateVideo 更新视频状态/元数据
+func UpdateVideo(c *gin.Context) {
+	videoID := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(videoID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取视频文件信息失败"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的视频ID"})
 		return
 	}
-
-	// 打开文件
-	file, err := os.Open(videoPath)
+	var payload map[string]interface{}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求体"})
+		return
+	}
+	coll := config.GetDB().Collection("videos")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = coll.UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": payload})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "打开视频文件失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新视频失败"})
 		return
 	}
-	defer file.Close()
-
-	// 设置响应头
-	c.Header("Content-Type", "video/mp4")
-	c.Header("Content-Length", string(fileInfo.Size()))
-	c.Header("Content-Disposition", "inline; filename=\""+filepath.Base(videoPath)+"\"")
-
-	// 发送文件内容
-	if _, err := io.Copy(c.Writer, file); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送视频文件失败"})
-		return
-	}
+	var video models.Video
+	_ = coll.FindOne(ctx, bson.M{"_id": objID}).Decode(&video)
+	c.JSON(http.StatusOK, video)
 }

@@ -92,3 +92,51 @@ func GetPublishTasks(c *gin.Context) {
 
 	c.JSON(http.StatusOK, tasks)
 }
+
+// GetPublishTask 获取单个发布任务
+func GetPublishTask(c *gin.Context) {
+	id := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的任务ID"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var task models.PublishTask
+	err = config.GetDB().Collection("publish_tasks").FindOne(ctx, bson.M{"_id": objID}).Decode(&task)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
+		return
+	}
+	c.JSON(http.StatusOK, task)
+}
+
+// UpdatePublishTask 更新发布任务（状态/结果等）
+func UpdatePublishTask(c *gin.Context) {
+	id := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的任务ID"})
+		return
+	}
+	var payload map[string]interface{}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求体"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = config.GetDB().Collection("publish_tasks").UpdateOne(
+		ctx,
+		bson.M{"_id": objID},
+		bson.M{"$set": payload},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新任务失败"})
+		return
+	}
+	var task models.PublishTask
+	_ = config.GetDB().Collection("publish_tasks").FindOne(ctx, bson.M{"_id": objID}).Decode(&task)
+	c.JSON(http.StatusOK, task)
+}

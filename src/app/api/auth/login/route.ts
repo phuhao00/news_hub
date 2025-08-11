@@ -1,75 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AuthResponse, LoginCredentials } from '@/lib/auth';
-
-// Mock user database - in production, use a real database
-const MOCK_USERS = [
-  {
-    id: '1',
-    username: 'admin',
-    email: 'admin@newshub.com',
-    password: 'admin123', // In production, this should be hashed
-    role: 'admin' as const,
-    permissions: ['admin:all'],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-  {
-    id: '2',
-    username: 'user',
-    email: 'user@newshub.com',
-    password: 'user123',
-    role: 'user' as const,
-    permissions: [
-      'crawler:read', 'crawler:write',
-      'content:read', 'content:write',
-      'video:read', 'video:generate',
-      'publish:read', 'publish:write'
-    ],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-  {
-    id: '3',
-    username: 'viewer',
-    email: 'viewer@newshub.com',
-    password: 'viewer123',
-    role: 'viewer' as const,
-    permissions: [
-      'crawler:read',
-      'content:read',
-      'video:read',
-      'publish:read'
-    ],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-];
-
-// Generate a simple JWT-like token (in production, use a proper JWT library)
-function generateToken(userId: string): string {
-  const payload = {
-    userId,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60), // 24 hours
-  };
-  
-  // In production, use proper JWT signing
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
-}
-
-function generateRefreshToken(userId: string): string {
-  const payload = {
-    userId,
-    type: 'refresh',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60), // 7 days
-  };
-  
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
-}
+import { AuthResponse, LoginCredentials, findUserByUsernameOrEmail, generateRefreshToken, generateToken, sanitizeUser, updateLastLogin } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -84,9 +14,7 @@ export async function POST(request: Request) {
     }
 
     // Find user
-    const user = MOCK_USERS.find(
-      u => u.username === credentials.username || u.email === credentials.username
-    );
+    const user = findUserByUsernameOrEmail(credentials.username);
 
     if (!user) {
       return NextResponse.json(
@@ -108,19 +36,10 @@ export async function POST(request: Request) {
     const refreshToken = generateRefreshToken(user.id);
 
     // Update last login
-    user.lastLogin = new Date().toISOString();
+    updateLastLogin(user.id);
 
     // Prepare response (exclude password)
-    const userResponse = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      permissions: user.permissions,
-      avatar: user.avatar,
-      createdAt: user.createdAt,
-      lastLogin: user.lastLogin,
-    };
+    const userResponse = sanitizeUser(user);
 
     const authResponse: AuthResponse = {
       user: userResponse,

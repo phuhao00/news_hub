@@ -1,8 +1,5 @@
 import { NextResponse } from 'next/server';
-
-// In a real application, you might want to maintain a blacklist of revoked tokens
-// or store active sessions in a database/cache like Redis
-const REVOKED_TOKENS = new Set<string>();
+import { revokeToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -16,9 +13,8 @@ export async function POST(request: Request) {
     }
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-    
-    // Add token to revoked list (in production, store this in Redis or database)
-    REVOKED_TOKENS.add(token);
+    // Revoke token
+    revokeToken(token);
 
     return NextResponse.json({
       success: true,
@@ -33,8 +29,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
-// Helper function to check if token is revoked (use in other auth routes)
-export function isTokenRevoked(token: string): boolean {
-  return REVOKED_TOKENS.has(token);
-} 

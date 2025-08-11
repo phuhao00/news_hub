@@ -1,39 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AuthResponse, RegisterData } from '@/lib/auth';
-
-// Mock user database - extend the same structure as login
-const MOCK_USERS = [
-  {
-    id: '1',
-    username: 'admin',
-    email: 'admin@newshub.com',
-    password: 'admin123',
-    role: 'admin' as const,
-    permissions: ['admin:all'],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-];
-
-function generateToken(userId: string): string {
-  const payload = {
-    userId,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60),
-  };
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
-}
-
-function generateRefreshToken(userId: string): string {
-  const payload = {
-    userId,
-    type: 'refresh',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60),
-  };
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
-}
+import { AuthResponse, RegisterData, addUser, findUserByUsernameOrEmail, generateRefreshToken, generateToken, sanitizeUser } from '@/lib/auth';
 
 function validateEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -100,9 +66,7 @@ export async function POST(request: Request) {
     }
 
     // Check if user already exists
-    const existingUser = MOCK_USERS.find(
-      u => u.username === data.username || u.email === data.email
-    );
+    const existingUser = findUserByUsernameOrEmail(data.username) || findUserByUsernameOrEmail(data.email);
 
     if (existingUser) {
       const field = existingUser.username === data.username ? 'username' : 'email';
@@ -119,41 +83,18 @@ export async function POST(request: Request) {
     }
 
     // Create new user
-    const newUser = {
-      id: (MOCK_USERS.length + 1).toString(),
-      username: data.username.trim(),
-      email: data.email.trim().toLowerCase(),
-      password: data.password, // In production, hash this password
-      role: 'user' as const, // Default role for new registrations
-      permissions: [
-        'crawler:read', 'crawler:write',
-        'content:read', 'content:write',
-        'video:read', 'video:generate',
-        'publish:read', 'publish:write'
-      ],
-      avatar: null,
-      createdAt: new Date().toISOString(),
-      lastLogin: new Date().toISOString(),
-    };
-
-    // Add to mock database
-    MOCK_USERS.push(newUser);
+    const newUser = addUser({
+      username: data.username,
+      email: data.email,
+      password: data.password,
+    });
 
     // Generate tokens
     const token = generateToken(newUser.id);
     const refreshToken = generateRefreshToken(newUser.id);
 
     // Prepare response (exclude password)
-    const userResponse = {
-      id: newUser.id,
-      username: newUser.username,
-      email: newUser.email,
-      role: newUser.role,
-      permissions: newUser.permissions,
-      avatar: newUser.avatar,
-      createdAt: newUser.createdAt,
-      lastLogin: newUser.lastLogin,
-    };
+    const userResponse = sanitizeUser(newUser);
 
     const authResponse: AuthResponse = {
       user: userResponse,

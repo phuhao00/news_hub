@@ -4,7 +4,7 @@ import './globals.css';
 import Navigation from '@/components/Navigation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastProvider } from '@/components/Toast';
-import { AuthProvider } from '@/lib/auth';
+import { AuthProvider } from '@/lib/auth-client';
 
 const inter = Inter({ subsets: ['latin'] });
 

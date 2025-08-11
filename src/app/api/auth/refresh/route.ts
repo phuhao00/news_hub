@@ -1,88 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AuthResponse } from '@/lib/auth';
-
-// Mock user database
-const MOCK_USERS = [
-  {
-    id: '1',
-    username: 'admin',
-    email: 'admin@newshub.com',
-    role: 'admin' as const,
-    permissions: ['admin:all'],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-  {
-    id: '2',
-    username: 'user',
-    email: 'user@newshub.com',
-    role: 'user' as const,
-    permissions: [
-      'crawler:read', 'crawler:write',
-      'content:read', 'content:write',
-      'video:read', 'video:generate',
-      'publish:read', 'publish:write'
-    ],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-  {
-    id: '3',
-    username: 'viewer',
-    email: 'viewer@newshub.com',
-    role: 'viewer' as const,
-    permissions: [
-      'crawler:read',
-      'content:read',
-      'video:read',
-      'publish:read'
-    ],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-];
-
-function generateToken(userId: string): string {
-  const payload = {
-    userId,
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60),
-  };
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
-}
-
-function generateRefreshToken(userId: string): string {
-  const payload = {
-    userId,
-    type: 'refresh',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + (7 * 24 * 60 * 60),
-  };
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
-}
-
-function verifyRefreshToken(token: string): { userId: string } | null {
-  try {
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    
-    // Check if it's a refresh token
-    if (payload.type !== 'refresh') {
-      return null;
-    }
-    
-    // Check if token is expired
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-      return null;
-    }
-    
-    return { userId: payload.userId };
-  } catch (error) {
-    return null;
-  }
-}
+import { AuthResponse, generateRefreshToken, generateToken, getUserSafeById, verifyRefreshToken } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
@@ -105,7 +22,7 @@ export async function POST(request: Request) {
     }
 
     // Find user
-    const user = MOCK_USERS.find(u => u.id === payload.userId);
+    const user = getUserSafeById(payload.userId);
 
     if (!user) {
       return NextResponse.json(
@@ -119,16 +36,7 @@ export async function POST(request: Request) {
     const newRefreshToken = generateRefreshToken(user.id);
 
     // Prepare response
-    const userResponse = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      permissions: user.permissions,
-      avatar: user.avatar,
-      createdAt: user.createdAt,
-      lastLogin: new Date().toISOString(),
-    };
+    const userResponse = user;
 
     const authResponse: AuthResponse = {
       user: userResponse,

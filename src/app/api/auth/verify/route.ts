@@ -1,64 +1,5 @@
 import { NextResponse } from 'next/server';
-
-// Mock user database
-const MOCK_USERS = [
-  {
-    id: '1',
-    username: 'admin',
-    email: 'admin@newshub.com',
-    role: 'admin' as const,
-    permissions: ['admin:all'],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-  {
-    id: '2',
-    username: 'user',
-    email: 'user@newshub.com',
-    role: 'user' as const,
-    permissions: [
-      'crawler:read', 'crawler:write',
-      'content:read', 'content:write',
-      'video:read', 'video:generate',
-      'publish:read', 'publish:write'
-    ],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-  {
-    id: '3',
-    username: 'viewer',
-    email: 'viewer@newshub.com',
-    role: 'viewer' as const,
-    permissions: [
-      'crawler:read',
-      'content:read',
-      'video:read',
-      'publish:read'
-    ],
-    avatar: null,
-    createdAt: '2024-01-01T00:00:00Z',
-    lastLogin: null,
-  },
-];
-
-function verifyToken(token: string): { userId: string } | null {
-  try {
-    // In production, use proper JWT verification
-    const payload = JSON.parse(Buffer.from(token, 'base64').toString());
-    
-    // Check if token is expired
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-      return null;
-    }
-    
-    return { userId: payload.userId };
-  } catch (error) {
-    return null;
-  }
-}
+import { getUserSafeById, verifyToken } from '@/lib/auth';
 
 export async function GET(request: Request) {
   try {
@@ -82,7 +23,7 @@ export async function GET(request: Request) {
     }
 
     // Find user
-    const user = MOCK_USERS.find(u => u.id === payload.userId);
+    const user = getUserSafeById(payload.userId);
 
     if (!user) {
       return NextResponse.json(
@@ -92,19 +33,7 @@ export async function GET(request: Request) {
     }
 
     // Return user data
-    return NextResponse.json({
-      success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        permissions: user.permissions,
-        avatar: user.avatar,
-        createdAt: user.createdAt,
-        lastLogin: user.lastLogin,
-      }
-    });
+    return NextResponse.json({ success: true, user });
 
   } catch (error) {
     console.error('Token verification error:', error);
