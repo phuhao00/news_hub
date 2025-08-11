@@ -13,14 +13,14 @@ import (
 var DB *mongo.Database
 
 func ConnectDB() error {
-	mongoURI := os.Getenv("MONGODB_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017"
-	}
-
+	// 直接使用newshub-mongodb容器的端口
+	mongoURI := "mongodb://localhost:27015"
+	
+	log.Printf("尝试连接MongoDB: %s", mongoURI)
 	clientOptions := options.Client().ApplyURI(mongoURI)
 	client, err := mongo.Connect(context.Background(), clientOptions)
 	if err != nil {
+		log.Printf("MongoDB连接失败: %v", err)
 		return err
 	}
 

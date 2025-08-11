@@ -214,6 +214,128 @@ export default function TeamPage() {
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
             <p className="mt-2 text-gray-600">Loading team data...</p>
           </div>
+        ) : (
+          <>
+            {/* Team Members Tab */}
+            {activeTab === 'members' && (
+              <div className="aws-card">
+                <div className="p-6 border-b border-gray-200">
+                  <h2 className="text-xl font-semibold">Team Members</h2>
+                </div>
+                
+                {members.length === 0 ? (
+                  <div className="text-center py-12">
+                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                    </svg>
+                    <p className="text-gray-500 text-lg mb-2">No team members yet</p>
+                    <p className="text-gray-400 mb-4">Invite your first team member to get started</p>
+                    <button
+                      onClick={() => setShowInviteModal(true)}
+                      className="aws-btn-primary"
+                    >
+                      Invite Team Member
+                    </button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-200">
+                    {members.map((member) => (
+                      <div key={member.id} className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                              {member.avatar ? (
+                                <img
+                                  src={member.avatar}
+                                  alt={member.name}
+                                  className="w-12 h-12 rounded-full object-cover"
+                                />
+                              ) : (
+                                <span className="text-gray-600 font-medium text-lg">
+                                  {member.name?.charAt(0) || member.email?.charAt(0)}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900">
+                                {member.name || member.email}
+                              </h3>
+                              <p className="text-gray-600">{member.email}</p>
+                              <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500">
+                                <span>Joined: {new Date(member.joinedAt).toLocaleDateString()}</span>
+                                <span>Last active: {new Date(member.lastActive).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center space-x-3">
+                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleColor(member.role)}`}>
+                              {roles.find(r => r.id === member.role)?.name || member.role}
+                            </span>
+                            
+                            <select
+                              value={member.role}
+                              onChange={(e) => updateMemberRole(member.id, e.target.value)}
+                              className="text-sm border border-gray-300 rounded px-2 py-1"
+                            >
+                              {roles.map((role) => (
+                                <option key={role.id} value={role.id}>
+                                  {role.name}
+                                </option>
+                              ))}
+                            </select>
+                            
+                            <button
+                              onClick={() => removeMember(member.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {member.permissions && member.permissions.length > 0 && (
+                          <div className="mt-3">
+                            <div className="text-sm text-gray-600 mb-2">Permissions:</div>
+                            <div className="flex flex-wrap gap-2">
+                              {member.permissions.map((permission: string) => (
+                                <span
+                                  key={permission}
+                                  className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
+                                >
+                                  {permissions.find(p => p.id === permission)?.name || permission}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Projects Tab */}
+            {activeTab === 'projects' && (
+              <div className="space-y-6">
+                {projects.length === 0 ? (
+                  <div className="aws-card text-center py-12">
+                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                    <p className="text-gray-500 text-lg mb-2">No projects yet</p>
+                    <p className="text-gray-400 mb-4">Create your first project to organize your work</p>
+                    <button
+                      onClick={() => setShowProjectModal(true)}
+                      className="aws-btn-primary"
+                    >
+                      Create Project
+                    </button>
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {projects.map((project) => (
@@ -520,125 +642,3 @@ export default function TeamPage() {
     </div>
   );
 }
-          <>
-            {/* Team Members Tab */}
-            {activeTab === 'members' && (
-              <div className="aws-card">
-                <div className="p-6 border-b border-gray-200">
-                  <h2 className="text-xl font-semibold">Team Members</h2>
-                </div>
-                
-                {members.length === 0 ? (
-                  <div className="text-center py-12">
-                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
-                    </svg>
-                    <p className="text-gray-500 text-lg mb-2">No team members yet</p>
-                    <p className="text-gray-400 mb-4">Invite your first team member to get started</p>
-                    <button
-                      onClick={() => setShowInviteModal(true)}
-                      className="aws-btn-primary"
-                    >
-                      Invite Team Member
-                    </button>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-200">
-                    {members.map((member) => (
-                      <div key={member.id} className="p-6">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                              {member.avatar ? (
-                                <img
-                                  src={member.avatar}
-                                  alt={member.name}
-                                  className="w-12 h-12 rounded-full object-cover"
-                                />
-                              ) : (
-                                <span className="text-gray-600 font-medium text-lg">
-                                  {member.name?.charAt(0) || member.email?.charAt(0)}
-                                </span>
-                              )}
-                            </div>
-                            
-                            <div>
-                              <h3 className="text-lg font-semibold text-gray-900">
-                                {member.name || member.email}
-                              </h3>
-                              <p className="text-gray-600">{member.email}</p>
-                              <div className="flex items-center space-x-4 mt-1 text-sm text-gray-500">
-                                <span>Joined: {new Date(member.joinedAt).toLocaleDateString()}</span>
-                                <span>Last active: {new Date(member.lastActive).toLocaleDateString()}</span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center space-x-3">
-                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleColor(member.role)}`}>
-                              {roles.find(r => r.id === member.role)?.name || member.role}
-                            </span>
-                            
-                            <select
-                              value={member.role}
-                              onChange={(e) => updateMemberRole(member.id, e.target.value)}
-                              className="text-sm border border-gray-300 rounded px-2 py-1"
-                            >
-                              {roles.map((role) => (
-                                <option key={role.id} value={role.id}>
-                                  {role.name}
-                                </option>
-                              ))}
-                            </select>
-                            
-                            <button
-                              onClick={() => removeMember(member.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-                        
-                        {member.permissions && member.permissions.length > 0 && (
-                          <div className="mt-3">
-                            <div className="text-sm text-gray-600 mb-2">Permissions:</div>
-                            <div className="flex flex-wrap gap-2">
-                              {member.permissions.map((permission: string) => (
-                                <span
-                                  key={permission}
-                                  className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs"
-                                >
-                                  {permissions.find(p => p.id === permission)?.name || permission}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Projects Tab */}
-            {activeTab === 'projects' && (
-              <div className="space-y-6">
-                {projects.length === 0 ? (
-                  <div className="aws-card text-center py-12">
-                    <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                    </svg>
-                    <p className="text-gray-500 text-lg mb-2">No projects yet</p>
-                    <p className="text-gray-400 mb-4">Create your first project to organize your work</p>
-                    <button
-                      onClick={() => setShowProjectModal(true)}
-                      className="aws-btn-primary"
-                    >
-                      Create Project
-                    </button>
-                  </div>
-                ) : (

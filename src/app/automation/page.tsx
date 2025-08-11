@@ -10,8 +10,8 @@ export default function AutomationPage() {
   const [newWorkflow, setNewWorkflow] = useState({
     name: '',
     description: '',
-    triggers: [],
-    actions: [],
+    triggers: [] as string[],
+    actions: [] as string[],
     schedule: '',
     enabled: true
   });
@@ -69,59 +69,7 @@ export default function AutomationPage() {
     try {
       await automationApi.create(newWorkflow);
       setShowCreateModal(false);
-                            setNewWorkflow({
-                              ...newWorkflow,
-                              actions: newWorkflow.actions.filter(a => a !== action.id)
-                            });
-                          }
-                        }}
-                        className="text-orange-500 focus:ring-orange-500 mt-1"
-                      />
-                      <div className="ml-3">
-                        <div className="font-medium text-sm">{action.name}</div>
-                        <div className="text-xs text-gray-600">{action.description}</div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              {/* Schedule */}
-              <div>
-                <label className="block text-sm font-medium mb-2">Schedule (Optional)</label>
-                <input
-                  type="text"
-                  value={newWorkflow.schedule}
-                  onChange={(e) => setNewWorkflow({ ...newWorkflow, schedule: e.target.value })}
-                  placeholder="e.g., 0 9 * * * (daily at 9 AM)"
-                  className="aws-input w-full"
-                />
-                <div className="text-xs text-gray-500 mt-1">
-                  Use cron format for scheduled triggers
-                </div>
-              </div>
-            </div>
-            
-            <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="aws-btn-secondary"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={createWorkflow}
-                className="aws-btn-primary"
-              >
-                Create Workflow
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+      setNewWorkflow({
         name: '',
         description: '',
         triggers: [],
@@ -384,3 +332,55 @@ export default function AutomationPage() {
                             });
                           } else {
                             setNewWorkflow({
+                              ...newWorkflow,
+                              actions: newWorkflow.actions.filter(a => a !== action.id)
+                            });
+                          }
+                        }}
+                        className="text-orange-500 focus:ring-orange-500 mt-1"
+                      />
+                      <div className="ml-3">
+                        <div className="font-medium text-sm">{action.name}</div>
+                        <div className="text-xs text-gray-600">{action.description}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Schedule */}
+              <div>
+                <label className="block text-sm font-medium mb-2">Schedule (Optional)</label>
+                <input
+                  type="text"
+                  value={newWorkflow.schedule}
+                  onChange={(e) => setNewWorkflow({ ...newWorkflow, schedule: e.target.value })}
+                  placeholder="e.g., 0 9 * * * (daily at 9 AM)"
+                  className="aws-input w-full"
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  Use cron format for scheduled triggers
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="aws-btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createWorkflow}
+                className="aws-btn-primary"
+              >
+                Create Workflow
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

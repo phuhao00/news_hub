@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { SocialPlatform, PublishTask } from '@/types';
 import { publishApi } from '@/utils/api';
 
-export default function PublishPage() {
+function PublishPageContent() {
   const searchParams = useSearchParams();
   const videoId = searchParams.get('videoId');
 
@@ -304,5 +304,20 @@ export default function PublishPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function PublishPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+          <p className="mt-2 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <PublishPageContent />
+    </Suspense>
   );
 }

@@ -57,7 +57,14 @@ func GetCreators(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cursor, err := config.GetDB().Collection("creators").Find(ctx, bson.M{})
+	// 添加调试信息
+	db := config.GetDB()
+	if db == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database connection is nil"})
+		return
+	}
+
+	cursor, err := db.Collection("creators").Find(ctx, bson.M{})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
