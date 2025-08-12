@@ -49,11 +49,48 @@ type PostData struct {
 	Author      string    `json:"author"`
 	Platform    string    `json:"platform"`
 	URL         string    `json:"url"`
-	PublishedAt time.Time `json:"published_at"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
 	Tags        []string  `json:"tags"`
 	Images      []string  `json:"images"`
 	VideoURL    string    `json:"video_url,omitempty"`
 	OriginID    string    `json:"origin_id,omitempty"`
+}
+
+// UnmarshalJSON 自定义JSON解析，处理多种时间格式
+func (p *PostData) UnmarshalJSON(data []byte) error {
+	type Alias PostData
+	aux := &struct {
+		PublishedAt interface{} `json:"published_at"`
+		*Alias
+	}{
+		Alias: (*Alias)(p),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// 处理published_at字段
+	if aux.PublishedAt != nil {
+		switch v := aux.PublishedAt.(type) {
+		case string:
+			// 尝试多种时间格式
+			formats := []string{
+				time.RFC3339,
+				"2006-01-02T15:04:05.999999",
+				"2006-01-02T15:04:05",
+				"2006-01-02 15:04:05",
+			}
+			for _, format := range formats {
+				if t, err := time.Parse(format, v); err == nil {
+					p.PublishedAt = &t
+					break
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // NewScheduledCrawlerService 创建新的定时爬虫服务
@@ -228,7 +265,7 @@ func (scs *ScheduledCrawlerService) callPythonCrawler(req CrawlRequest) ([]PostD
 		return nil, fmt.Errorf("序列化请求失败: %v", err)
 	}
 
-	resp, err := http.Post(PYTHON_CRAWLER_URL+"/crawl", "application/json", bytes.NewBuffer(reqBody))
+	resp, err := http.Post(PYTHON_CRAWLER_URL+"/crawl/platform", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("调用Python爬虫服务失败: %v", err)
 	}

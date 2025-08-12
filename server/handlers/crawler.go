@@ -47,7 +47,19 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 		triggerReq.Platform = "weibo"
 	}
 	if triggerReq.CreatorURL == "" {
-		triggerReq.CreatorURL = "https://example.com/creator"
+		// 根据平台设置合适的默认值
+		switch triggerReq.Platform {
+		case "weibo":
+			triggerReq.CreatorURL = "周杰伦中文网JayCn"  // 使用知名用户名作为默认值
+		case "bilibili":
+			triggerReq.CreatorURL = "热门视频"
+		case "douyin":
+			triggerReq.CreatorURL = "热门短视频"
+		case "xiaohongshu":
+			triggerReq.CreatorURL = "生活分享"
+		default:
+			triggerReq.CreatorURL = "热门内容"
+		}
 	}
 	if triggerReq.Limit <= 0 {
 		triggerReq.Limit = 10

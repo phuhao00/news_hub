@@ -18,8 +18,14 @@ services:
       - MONGODB_URI=mongodb://mongodb:27017
       - DB_NAME=newshub
       - PORT=8080
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_USE_SSL=false
+      - MINIO_BUCKET_NAME=newshub-media
     depends_on:
       - mongodb
+      - minio
 
   # 添加爬虫服务
   crawler:
@@ -30,6 +36,11 @@ services:
     environment:
       - PORT=8001
       - LOG_LEVEL=INFO
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin123
+      - MINIO_USE_SSL=false
+      - MINIO_BUCKET_NAME=newshub-media
     ports:
       - "8001:8001"
     volumes:
@@ -37,6 +48,7 @@ services:
       - crawler_logs:/app/logs
     depends_on:
       - mongodb
+      - minio
 
   nginx:
     image: nginx:alpine
@@ -60,6 +72,41 @@ services:
     ports:
       - "27017:27017"
 
+  # MinIO 对象存储服务
+  minio:
+    image: minio/minio:latest
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+      - MINIO_DOMAIN=localhost
+    ports:
+      - "9000:9000"  # API端口
+      - "9001:9001"  # 控制台端口
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # MinIO 初始化服务
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    volumes:
+      - ./init-minio.sh:/init-minio.sh
+    entrypoint: >
+      /bin/sh -c "
+      chmod +x /init-minio.sh &&
+      /init-minio.sh
+      "
+    restart: "no"
+
 volumes:
   mongodb_data:
   crawler_logs:
+  minio_data:

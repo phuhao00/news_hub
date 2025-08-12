@@ -11,8 +11,8 @@ interface Post {
   creatorId: string;
   creatorName?: string;
   publishedAt: string;
-  imageUrl?: string;
-  videoUrl?: string;
+  images?: string[];
+  video?: string;
   likes?: number;
   shares?: number;
   comments?: number;
@@ -59,9 +59,13 @@ export default function ContentPage() {
     try {
       await postApi.delete(id);
       setPosts(posts.filter(post => post.id !== id));
+      // 显示成功消息
+      alert('内容删除成功');
     } catch (error) {
       console.error('删除内容失败:', error);
-      alert('删除内容失败');
+      // 提供更详细的错误信息
+      const errorMessage = error instanceof Error ? error.message : '删除内容失败';
+      alert(`删除失败: ${errorMessage}`);
     }
   };
 
@@ -251,13 +255,50 @@ export default function ContentPage() {
                   </div>
 
                   {/* 媒体预览 */}
-                  {post.imageUrl && (
+                  {post.images && post.images.length > 0 && (
                     <div className="mb-4">
-                      <img
-                        src={post.imageUrl}
-                        alt="内容图片"
-                        className="w-full h-32 object-cover rounded-lg"
-                      />
+                      {post.images.length === 1 ? (
+                        <img
+                          src={post.images[0]}
+                          alt="内容图片"
+                          className="w-full h-32 object-cover rounded-lg"
+                        />
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          {post.images.slice(0, 4).map((image, index) => (
+                            <div key={index} className="relative">
+                              <img
+                                src={image}
+                                alt={`内容图片 ${index + 1}`}
+                                className="w-full h-20 object-cover rounded-lg"
+                              />
+                              {index === 3 && post.images!.length > 4 && (
+                                <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
+                                  <span className="text-white text-sm font-medium">
+                                    +{post.images!.length - 4}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* 视频预览 */}
+                  {post.video && (
+                    <div className="mb-4">
+                      <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden">
+                        <video
+                          src={post.video}
+                          controls
+                          className="w-full h-full object-cover"
+                          preload="metadata"
+                        >
+                          您的浏览器不支持视频播放。
+                        </video>
+                      </div>
                     </div>
                   )}
 

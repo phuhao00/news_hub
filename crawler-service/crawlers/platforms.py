@@ -204,7 +204,7 @@ class WeiboCrawler(PlatformCrawler):
         return creator_url or "热门微博"
     
     def _extract_search_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
-        """从搜索结果页面提取微博相关链接"""
+        """从搜索结果页面提取动态内容相关链接，过滤静态页面"""
         results = []
         
         # 不同搜索引擎的选择器
@@ -229,7 +229,8 @@ class WeiboCrawler(PlatformCrawler):
                     abstract_elem = elem.select_one('.c-abstract, .abstract, .desc, p')
                     abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
                     
-                    if title and len(title) > 5:
+                    # 验证是否为动态内容
+                    if title and len(title) > 5 and self._is_dynamic_content(title, abstract, url):
                         results.append({
                             'title': title,
                             'url': url,
@@ -239,6 +240,52 @@ class WeiboCrawler(PlatformCrawler):
                 continue
                 
         return results
+    
+    def _is_dynamic_content(self, title: str, abstract: str, url: str) -> bool:
+        """检查是否为动态内容，过滤静态页面"""
+        # 静态页面关键词
+        static_keywords = [
+            '首页', 'home', 'index', '主页', '官网',
+            '关于', 'about', '联系', 'contact', '帮助', 'help',
+            '登录', 'login', '注册', 'register', '下载', 'download',
+            '条款', 'terms', '隐私', 'privacy', '免责', 'disclaimer',
+            '导航', 'navigation', '菜单', 'menu', '404', 'error'
+        ]
+        
+        # 动态内容关键词
+        dynamic_keywords = [
+            '发布', '更新', '最新', '动态', '帖子', 'post',
+            '视频', 'video', '直播', 'live', '分享', 'share',
+            '评论', 'comment', '点赞', 'like', '转发', 'repost',
+            '话题', 'topic', '热门', 'trending', '今日', 'today',
+            '用户', 'user', '博主', 'blogger', '创作者', 'creator'
+        ]
+        
+        content_text = (title + ' ' + abstract).lower()
+        
+        # 检查静态页面关键词
+        for keyword in static_keywords:
+            if keyword in content_text:
+                return False
+        
+        # 检查URL是否为静态页面
+        if url:
+            url_lower = url.lower()
+            if any(pattern in url_lower for pattern in ['/about', '/help', '/contact', '/terms', '/privacy', '/login', '/register']):
+                return False
+            
+            # 检查是否为首页URL
+            if re.match(r'https?://[^/]+/?$', url) or '/index' in url_lower or '/home' in url_lower:
+                return False
+        
+        # 检查动态内容关键词
+        dynamic_score = 0
+        for keyword in dynamic_keywords:
+            if keyword in content_text:
+                dynamic_score += 1
+        
+        # 至少包含1个动态内容关键词
+        return dynamic_score >= 1
     
     def _create_post_from_result(self, result: Dict[str, str], query: str) -> Optional[PostData]:
         """从搜索结果创建微博帖子"""
@@ -396,8 +443,8 @@ class DouyinCrawler(PlatformCrawler):
                     return part
         return creator_url or "热门短视频"
     
-    def _extract_video_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
-        """提取视频相关搜索结果"""
+    def _extract_search_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
+        """提取动态视频内容相关搜索结果，过滤静态页面"""
         results = []
         
         if 'baidu.com' in search_url:
@@ -419,9 +466,8 @@ class DouyinCrawler(PlatformCrawler):
                     desc_elem = elem.select_one('.c-abstract, .abstract, .desc')
                     description = desc_elem.get_text(strip=True) if desc_elem else ""
                     
-                    # 检查是否为视频相关内容
-                    video_keywords = ['视频', '抖音', 'douyin', '短视频', '播放']
-                    if any(keyword in (title + description).lower() for keyword in video_keywords):
+                    # 验证是否为动态视频内容
+                    if self._is_dynamic_video_content(title, description, url):
                         results.append({
                             'title': title,
                             'url': url,
@@ -432,12 +478,61 @@ class DouyinCrawler(PlatformCrawler):
                 
         return results
     
-    def _create_video_post(self, result: Dict[str, str], query: str) -> Optional[PostData]:
-        """创建抖音视频帖子"""
+    def _is_dynamic_video_content(self, title: str, description: str, url: str) -> bool:
+        """检查是否为动态视频内容"""
+        # 视频平台静态页面关键词
+        static_keywords = [
+            '首页', 'home', 'index', '主页', '官网', '下载',
+            '关于', 'about', '联系', 'contact', '帮助', 'help',
+            '登录', 'login', '注册', 'register', '设置', 'settings',
+            '条款', 'terms', '隐私', 'privacy', '版权', 'copyright'
+        ]
+        
+        # 动态视频内容关键词
+        dynamic_video_keywords = [
+            '视频', 'video', '短视频', '抖音', 'douyin', 'tiktok',
+            '播放', 'play', '观看', 'watch', '直播', 'live',
+            '创作者', 'creator', '博主', 'blogger', '达人',
+            '发布', 'post', '更新', 'update', '最新', 'latest',
+            '热门', 'trending', '推荐', 'recommend', '分享', 'share'
+        ]
+        
+        content_text = (title + ' ' + description).lower()
+        
+        # 检查静态页面关键词
+        for keyword in static_keywords:
+            if keyword in content_text:
+                return False
+        
+        # 检查URL是否为静态页面
+        if url:
+            url_lower = url.lower()
+            if any(pattern in url_lower for pattern in ['/about', '/help', '/contact', '/terms', '/privacy', '/login', '/register', '/download']):
+                return False
+            
+            # 检查是否为首页URL
+            if re.match(r'https?://[^/]+/?$', url) or '/index' in url_lower or '/home' in url_lower:
+                return False
+        
+        # 检查动态视频内容关键词
+        video_score = 0
+        for keyword in dynamic_video_keywords:
+            if keyword in content_text:
+                video_score += 1
+        
+        # 至少包含2个视频相关关键词
+        return video_score >= 2
+    
+    def _create_post_from_result(self, result: Dict[str, str], query: str) -> Optional[PostData]:
+        """从搜索结果创建抖音视频帖子"""
         try:
             title = result['title']
-            description = result['description']
+            description = result.get('description', result.get('abstract', ''))
             url = result['url']
+            
+            # 检查是否为抖音相关内容
+            if not any(keyword in (title + description).lower() for keyword in ['抖音', 'douyin', 'tiktok', '短视频', query.lower()]):
+                return None
             
             content = description if description else f"抖音短视频：{title}"
             
@@ -466,9 +561,10 @@ class DouyinCrawler(PlatformCrawler):
             )
             
         except Exception as e:
+            logger.error(f"创建抖音帖子失败: {e}")
             return None
     
-    def _create_fallback_videos(self, query: str, limit: int) -> List[PostData]:
+    def _create_fallback_posts(self, query: str, limit: int) -> List[PostData]:
         """创建备用抖音内容"""
         posts = []
         for i in range(min(limit, 3)):
@@ -581,7 +677,7 @@ class XiaohongshuCrawler(PlatformCrawler):
                     return part
         return creator_url or "生活分享"
     
-    def _extract_note_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
+    def _extract_search_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
         """提取小红书相关搜索结果"""
         results = []
         
@@ -604,9 +700,8 @@ class XiaohongshuCrawler(PlatformCrawler):
                     desc_elem = elem.select_one('.c-abstract, .abstract, .desc')
                     description = desc_elem.get_text(strip=True) if desc_elem else ""
                     
-                    # 检查是否为小红书相关内容
-                    xhs_keywords = ['小红书', 'xiaohongshu', '笔记', '种草', '分享']
-                    if any(keyword in (title + description).lower() for keyword in xhs_keywords):
+                    # 检查是否为小红书相关内容且为动态内容
+                    if self._is_dynamic_content(title, description, url):
                         results.append({
                             'title': title,
                             'url': url,
@@ -617,7 +712,28 @@ class XiaohongshuCrawler(PlatformCrawler):
                 
         return results
     
-    def _create_note_post(self, result: Dict[str, str], query: str) -> Optional[PostData]:
+    def _is_dynamic_content(self, title: str, description: str, url: str) -> bool:
+        """检查是否为小红书动态内容"""
+        # 静态页面关键词
+        static_keywords = ['首页', '主页', '登录', '注册', '帮助', '关于我们', '服务条款', '隐私政策', '导航', '菜单']
+        
+        # 检查标题和描述中是否包含静态页面关键词
+        content_text = (title + description).lower()
+        if any(keyword in content_text for keyword in static_keywords):
+            return False
+        
+        # 检查URL是否为静态页面
+        static_url_patterns = ['/home', '/index', '/main', '/login', '/register', '/help', '/about']
+        if any(pattern in url.lower() for pattern in static_url_patterns):
+            return False
+        
+        # 小红书动态内容关键词
+        dynamic_keywords = ['小红书', 'xiaohongshu', '笔记', '种草', '分享', '测评', '推荐', '体验', '使用心得', '好物']
+        
+        # 检查是否包含动态内容关键词
+        return any(keyword in content_text for keyword in dynamic_keywords)
+    
+    def _create_post_from_result(self, result: Dict[str, str], query: str) -> Optional[PostData]:
         """创建小红书笔记帖子"""
         try:
             title = result['title']
@@ -651,7 +767,7 @@ class XiaohongshuCrawler(PlatformCrawler):
         except Exception as e:
             return None
     
-    def _create_fallback_notes(self, query: str, limit: int) -> List[PostData]:
+    def _create_fallback_posts(self, query: str, limit: int) -> List[PostData]:
         """创建备用小红书内容"""
         posts = []
         for i in range(min(limit, 3)):
@@ -764,7 +880,7 @@ class BilibiliCrawler(PlatformCrawler):
                     return part
         return creator_url or "精彩视频"
     
-    def _extract_bili_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
+    def _extract_search_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
         """提取B站相关搜索结果"""
         results = []
         
@@ -787,9 +903,8 @@ class BilibiliCrawler(PlatformCrawler):
                     desc_elem = elem.select_one('.c-abstract, .abstract, .desc')
                     description = desc_elem.get_text(strip=True) if desc_elem else ""
                     
-                    # 检查是否为B站相关内容
-                    bili_keywords = ['bilibili', 'b站', '哔哩哔哩', 'up主', '视频']
-                    if any(keyword in (title + description).lower() for keyword in bili_keywords):
+                    # 检查是否为B站相关内容且为动态内容
+                    if self._is_dynamic_content(title, description, url):
                         results.append({
                             'title': title,
                             'url': url,
@@ -800,7 +915,28 @@ class BilibiliCrawler(PlatformCrawler):
                 
         return results
     
-    def _create_bili_post(self, result: Dict[str, str], query: str) -> Optional[PostData]:
+    def _is_dynamic_content(self, title: str, description: str, url: str) -> bool:
+        """检查是否为B站动态内容"""
+        # 静态页面关键词
+        static_keywords = ['首页', '主页', '登录', '注册', '帮助', '关于我们', '服务条款', '隐私政策', '导航', '菜单']
+        
+        # 检查标题和描述中是否包含静态页面关键词
+        content_text = (title + description).lower()
+        if any(keyword in content_text for keyword in static_keywords):
+            return False
+        
+        # 检查URL是否为静态页面
+        static_url_patterns = ['/home', '/index', '/main', '/login', '/register', '/help', '/about']
+        if any(pattern in url.lower() for pattern in static_url_patterns):
+            return False
+        
+        # B站动态内容关键词
+        dynamic_keywords = ['bilibili', 'b站', '哔哩哔哩', 'up主', '视频', '番剧', '直播', '动画', '游戏', '科技']
+        
+        # 检查是否包含动态内容关键词
+        return any(keyword in content_text for keyword in dynamic_keywords)
+    
+    def _create_post_from_result(self, result: Dict[str, str], query: str) -> Optional[PostData]:
         """创建B站视频帖子"""
         try:
             title = result['title']
@@ -832,7 +968,7 @@ class BilibiliCrawler(PlatformCrawler):
         except Exception as e:
             return None
     
-    def _create_fallback_videos(self, query: str, limit: int) -> List[PostData]:
+    def _create_fallback_posts(self, query: str, limit: int) -> List[PostData]:
         """创建备用B站内容"""
         posts = []
         for i in range(min(limit, 3)):

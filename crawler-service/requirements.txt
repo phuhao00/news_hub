@@ -11,4 +11,6 @@ fake-useragent>=1.4.0
 aiohttp>=3.9.0
 httpx>=0.25.0
 urllib3>=2.1.0
-crawl4ai>=0.2.77
+crawl4ai>=0.7.3
+minio>=7.2.0
+Pillow>=10.0.0

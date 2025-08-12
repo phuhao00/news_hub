@@ -28,13 +28,21 @@ type Creator struct {
 
 // Post 帖子模型
 type Post struct {
-	ID        primitive.ObjectID `bson:"_id" json:"id"`
-	CreatorID primitive.ObjectID `bson:"creator_id" json:"creator_id"`
-	Platform  string             `bson:"platform" json:"platform"`
-	PostID    string             `bson:"post_id" json:"post_id"` // 平台原始ID
-	Content   string             `bson:"content" json:"content"`
-	MediaURLs []string           `bson:"media_urls" json:"media_urls"`
-	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	ID          primitive.ObjectID `bson:"_id" json:"id"`
+	CreatorID   primitive.ObjectID `bson:"creator_id" json:"creator_id"`
+	CreatorName string             `bson:"creator_name,omitempty" json:"creatorName,omitempty"`
+	Platform    string             `bson:"platform" json:"platform"`
+	PostID      string             `bson:"post_id" json:"post_id"` // 平台原始ID
+	Title       string             `bson:"title,omitempty" json:"title,omitempty"`
+	Content     string             `bson:"content" json:"content"`
+	MediaURLs   []string           `bson:"media_urls" json:"media_urls"`
+	ImageUrl    string             `bson:"image_url,omitempty" json:"imageUrl,omitempty"`
+	VideoUrl    string             `bson:"video_url,omitempty" json:"videoUrl,omitempty"`
+	Likes       int                `bson:"likes,omitempty" json:"likes,omitempty"`
+	Shares      int                `bson:"shares,omitempty" json:"shares,omitempty"`
+	Comments    int                `bson:"comments,omitempty" json:"comments,omitempty"`
+	PublishedAt *time.Time         `bson:"published_at,omitempty" json:"publishedAt,omitempty"`
+	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
 }
 
 // Video 视频模型

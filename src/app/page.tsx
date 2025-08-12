@@ -92,12 +92,22 @@ export default function Home() {
     
     try {
       setQuickCrawling(true);
-      await crawlerApi.trigger({});
-      alert('爬虫任务已启动！');
+      
+      // 为每个创作者触发爬取任务
+      const crawlPromises = creators.map(creator => 
+        crawlerApi.trigger({
+          platform: creator.platform,
+          creator_url: creator.profileUrl || creator.username,
+          limit: 20
+        })
+      );
+      
+      await Promise.all(crawlPromises);
+      alert(`已为 ${creators.length} 个创作者启动爬取任务！`);
       setTimeout(loadStats, 2000);
     } catch (error) {
       console.error('启动爬虫失败:', error);
-      alert('启动爬虫失败');
+      alert('启动爬虫失败: ' + (error instanceof Error ? error.message : '未知错误'));
     } finally {
       setQuickCrawling(false);
     }

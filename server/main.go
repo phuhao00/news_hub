@@ -31,6 +31,12 @@ func main() {
 		log.Fatalf("连接数据库失败：%v\n", err)
 	}
 
+	// 初始化MinIO客户端
+	if err := config.InitMinIO(); err != nil {
+		log.Fatalf("初始化MinIO失败：%v\n", err)
+	}
+	log.Println("✅ MinIO客户端初始化成功")
+
 	// 如无数据则写入默认创作者种子数据
 	if err := seedCreatorsIfEmpty(); err != nil {
 		log.Printf("种子数据写入失败：%v\n", err)
@@ -77,6 +83,9 @@ func main() {
 	// 系统指标路由
 	r.GET("/metrics", middleware.GetMetrics())
 
+	// 创建存储处理器
+	storageHandler := handlers.NewStorageHandler()
+
 	// API路由
 	api := r.Group("/api")
 	{
@@ -102,6 +111,13 @@ func main() {
 		api.GET("/posts/:id", handlers.GetPost)
 		api.DELETE("/posts/:id", handlers.DeletePost)
 
+		// 存储相关接口
+		api.POST("/storage/upload/image", storageHandler.UploadImage)
+		api.POST("/storage/upload/video", storageHandler.UploadVideo)
+		api.GET("/storage/files", storageHandler.ListFiles)
+		api.GET("/storage/files/:filename/url", storageHandler.GetFileURL)
+		api.DELETE("/storage/files/*filename", storageHandler.DeleteFile)
+
 		// 爬虫服务代理接口 (转发到Python服务)
 		api.POST("/crawler/trigger", handlers.ProxyCrawlerTrigger)
 		api.GET("/crawler/status", handlers.ProxyCrawlerStatus)
@@ -112,6 +128,8 @@ func main() {
 		api.GET("/crawler/tasks", handlers.GetCrawlerTasks)
 		api.GET("/crawler/tasks/:id", handlers.GetCrawlerTask)
 		api.PUT("/crawler/tasks/:id/status", handlers.UpdateCrawlerTaskStatus)
+		api.DELETE("/crawler/tasks/:id", handlers.DeleteCrawlerTask)
+		api.DELETE("/crawler/tasks", handlers.BatchDeleteCrawlerTasks)
 
 		// 爬取内容接口
 		api.GET("/crawler/contents", handlers.GetCrawlerContents)

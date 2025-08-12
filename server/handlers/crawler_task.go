@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -177,6 +178,132 @@ func UpdateCrawlerTaskStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "状态更新成功"})
 }
 
+// DeleteCrawlerTask 删除爬取任务
+func DeleteCrawlerTask(c *gin.Context) {
+	taskID := c.Param("id")
+	objectID, err := primitive.ObjectIDFromHex(taskID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的任务ID"})
+		return
+	}
+
+	db := config.GetDB()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 删除相关的爬取内容
+	_, err = db.Collection("crawler_contents").DeleteMany(ctx, bson.M{"task_id": objectID})
+	if err != nil {
+		log.Printf("删除爬取内容失败: %v", err)
+		// 继续删除任务，即使内容删除失败
+	}
+
+	// 删除爬取任务
+	result, err := db.Collection("crawler_tasks").DeleteOne(ctx, bson.M{"_id": objectID})
+	if err != nil {
+		log.Printf("删除爬取任务失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除爬取任务失败"})
+		return
+	}
+
+	if result.DeletedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
+		return
+	}
+
+	log.Printf("成功删除爬取任务: %s", taskID)
+	c.JSON(http.StatusOK, gin.H{"message": "任务删除成功"})
+}
+
+// BatchDeleteCrawlerTasks 批量删除爬取任务
+func BatchDeleteCrawlerTasks(c *gin.Context) {
+	var req struct {
+		TaskIDs []string `json:"task_ids"`
+		Filter  struct {
+			Platform   string `json:"platform"`
+			CreatorURL string `json:"creator_url"`
+			Status     string `json:"status"`
+		} `json:"filter"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	db := config.GetDB()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	var filter bson.M
+
+	// 如果提供了具体的任务ID列表
+	if len(req.TaskIDs) > 0 {
+		objectIDs := make([]primitive.ObjectID, 0, len(req.TaskIDs))
+		for _, idStr := range req.TaskIDs {
+			if objectID, err := primitive.ObjectIDFromHex(idStr); err == nil {
+				objectIDs = append(objectIDs, objectID)
+			}
+		}
+		filter = bson.M{"_id": bson.M{"$in": objectIDs}}
+	} else {
+		// 使用过滤条件
+		filter = bson.M{}
+		if req.Filter.Platform != "" {
+			filter["platform"] = req.Filter.Platform
+		}
+		if req.Filter.CreatorURL != "" {
+			filter["creator_url"] = req.Filter.CreatorURL
+		}
+		if req.Filter.Status != "" {
+			filter["status"] = req.Filter.Status
+		}
+	}
+
+	// 获取要删除的任务ID列表
+	cursor, err := db.Collection("crawler_tasks").Find(ctx, filter)
+	if err != nil {
+		log.Printf("查询要删除的任务失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询任务失败"})
+		return
+	}
+	defer cursor.Close(ctx)
+
+	var taskIDs []primitive.ObjectID
+	for cursor.Next(ctx) {
+		var task models.CrawlerTask
+		if err := cursor.Decode(&task); err == nil {
+			taskIDs = append(taskIDs, task.ID)
+		}
+	}
+
+	if len(taskIDs) == 0 {
+		c.JSON(http.StatusOK, gin.H{"message": "没有找到匹配的任务", "deleted_count": 0})
+		return
+	}
+
+	// 删除相关的爬取内容
+	contentResult, err := db.Collection("crawler_contents").DeleteMany(ctx, bson.M{"task_id": bson.M{"$in": taskIDs}})
+	if err != nil {
+		log.Printf("批量删除爬取内容失败: %v", err)
+	}
+
+	// 删除爬取任务
+	taskResult, err := db.Collection("crawler_tasks").DeleteMany(ctx, filter)
+	if err != nil {
+		log.Printf("批量删除爬取任务失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量删除任务失败"})
+		return
+	}
+
+	log.Printf("批量删除完成: 删除了 %d 个任务和 %d 条内容", taskResult.DeletedCount, contentResult.DeletedCount)
+	c.JSON(http.StatusOK, gin.H{
+		"message":              "批量删除成功",
+		"deleted_tasks_count":   taskResult.DeletedCount,
+		"deleted_content_count": contentResult.DeletedCount,
+	})
+}
+
 // GetCrawlerContents 获取爬取内容列表
 func GetCrawlerContents(c *gin.Context) {
 	taskID := c.Query("task_id")
@@ -266,6 +393,13 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 			continue
 		}
 
+		// 处理origin_id，如果为空则生成唯一值
+		originID := getStringValue(postMap, "origin_id")
+		if originID == "" {
+			// 使用content_hash前8位 + 时间戳生成唯一origin_id
+			originID = fmt.Sprintf("%s_%d", contentHash[:8], time.Now().UnixNano())
+		}
+
 		content := models.CrawlerContent{
 			ID:          primitive.NewObjectID(),
 			TaskID:      taskID,
@@ -275,7 +409,7 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 			Author:      author,
 			Platform:    platform,
 			URL:         url,
-			OriginID:    getStringValue(postMap, "origin_id"),
+			OriginID:    originID,
 			Tags:        getStringArrayValue(postMap, "tags"),
 			Images:      getStringArrayValue(postMap, "images"),
 			VideoURL:    getStringValue(postMap, "video_url"),

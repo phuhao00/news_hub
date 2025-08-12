@@ -1,0 +1,51 @@
+{
+  "test_time": "2025-08-12T16:44:58.419975",
+  "basic_functionality": true,
+  "platform_tests": [
+    {
+      "platform": "weibo",
+      "url": "https://weibo.com/u/1234567890",
+      "success": false,
+      "posts_count": 0,
+      "duration": 10.397326,
+      "error": null
+    },
+    {
+      "platform": "bilibili",
+      "url": "https://www.bilibili.com/video/BV1xx411c7mu",
+      "success": true,
+      "posts_count": 1,
+      "duration": 1.883469,
+      "error": null,
+      "sample_post": {
+        "title": "最终鬼畜蓝蓝路",
+        "author": "B站UP主",
+        "content_length": 801,
+        "tags_count": 9,
+        "images_count": 1,
+        "has_video": true
+      }
+    },
+    {
+      "platform": "xiaohongshu",
+      "url": "https://www.xiaohongshu.com/explore/123456",
+      "success": true,
+      "posts_count": 1,
+      "duration": 1.160193,
+      "error": null,
+      "sample_post": {
+        "title": "小红书 - 你访问的页面不见了",
+        "author": "小红书用户",
+        "content_length": 862,
+        "tags_count": 0,
+        "images_count": 0,
+        "has_video": false
+      }
+    }
+  ],
+  "summary": {
+    "total_tests": 3,
+    "successful_tests": 2,
+    "success_rate": 66.66666666666666
+  }
+}
