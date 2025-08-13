@@ -9,9 +9,33 @@ from datetime import datetime, timedelta
 import redis.asyncio as aioredis
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from cryptography.fernet import Fernet
+from bson import ObjectId
 import logging
 
 logger = logging.getLogger(__name__)
+
+def convert_objectid_to_str(document: dict) -> dict:
+    """Convert MongoDB ObjectId fields to strings for JSON serialization"""
+    if document is None:
+        return None
+    
+    # Create a copy to avoid modifying the original
+    converted = document.copy()
+    
+    # Convert _id field if present
+    if '_id' in converted and isinstance(converted['_id'], ObjectId):
+        converted['_id'] = str(converted['_id'])
+    
+    # Convert any other ObjectId fields recursively
+    for key, value in converted.items():
+        if isinstance(value, ObjectId):
+            converted[key] = str(value)
+        elif isinstance(value, dict):
+            converted[key] = convert_objectid_to_str(value)
+        elif isinstance(value, list):
+            converted[key] = [convert_objectid_to_str(item) if isinstance(item, dict) else str(item) if isinstance(item, ObjectId) else item for item in value]
+    
+    return converted
 
 class SessionManager:
     """Session management service with Redis caching and MongoDB persistence"""
@@ -96,12 +120,15 @@ class SessionManager:
             
             # Check database
             session_data = await self.db.sessions.find_one({"session_id": session_id})
-            if session_data and self._is_session_valid(session_data):
-                # Restore to caches
-                self.active_sessions[session_id] = session_data
-                if self.redis:
-                    await self._cache_session(session_id, session_data)
-                return session_data
+            if session_data:
+                # Convert ObjectId to string for JSON serialization
+                session_data = convert_objectid_to_str(session_data)
+                if self._is_session_valid(session_data):
+                    # Restore to caches
+                    self.active_sessions[session_id] = session_data
+                    if self.redis:
+                        await self._cache_session(session_id, session_data)
+                    return session_data
             
             return None
             
@@ -207,9 +234,11 @@ class SessionManager:
             cursor = self.db.sessions.find(query)
             sessions = await cursor.to_list(length=None)
             
-            # Filter out expired sessions
+            # Filter out expired sessions and convert ObjectId
             valid_sessions = []
             for session in sessions:
+                # Convert ObjectId to string for JSON serialization
+                session = convert_objectid_to_str(session)
                 if self._is_session_valid(session):
                     valid_sessions.append(session)
                 else:
@@ -232,6 +261,8 @@ class SessionManager:
             })
             
             sessions = await cursor.to_list(length=None)
+            # Convert ObjectId to string for JSON serialization
+            sessions = [convert_objectid_to_str(session) for session in sessions]
             return sessions
             
         except Exception as e:

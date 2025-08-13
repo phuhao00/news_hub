@@ -8,13 +8,17 @@ from contextlib import asynccontextmanager
 from typing import List, Dict, Any, Optional
 from urllib.parse import urljoin
 from fastapi import FastAPI, HTTPException
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import uvicorn
+import json
 import os
 from dotenv import load_dotenv
 import html2text
 import re
 import json
+from bson import ObjectId
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from crawl4ai.chunking_strategy import RegexChunking
@@ -104,6 +108,45 @@ def load_mcp_config():
 # Load configuration
 app_config = load_config()
 mcp_config = load_mcp_config()
+
+# ==================== Custom JSON Encoder ====================
+
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle ObjectId and other MongoDB types"""
+    def default(self, obj):
+        if isinstance(obj, ObjectId):
+            return str(obj)
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+def custom_jsonable_encoder(obj):
+    """Custom jsonable encoder for FastAPI responses"""
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {key: custom_jsonable_encoder(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [custom_jsonable_encoder(item) for item in obj]
+    return obj
+
+class CustomJSONResponse(JSONResponse):
+    """Custom JSON response class that handles ObjectId serialization"""
+    def render(self, content) -> bytes:
+        if content is None:
+            return b""
+        # Convert ObjectId and other types before JSON serialization
+        content = custom_jsonable_encoder(content)
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            cls=CustomJSONEncoder
+        ).encode("utf-8")
 
 # ==================== Data Models ====================
 
@@ -4602,7 +4645,8 @@ app = FastAPI(
     title="NewsHub 统一爬虫服务", 
     version="2.0.0",
     description="整合了通用爬虫和平台特定爬虫的统一服务",
-    lifespan=lifespan
+    lifespan=lifespan,
+    default_response_class=CustomJSONResponse
 )
 
 # 添加CORS中间件

@@ -11,6 +11,7 @@ import re
 
 from playwright.async_api import Page, Browser, BrowserContext
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
 from pydantic import BaseModel, HttpUrl
 
 from .models import (
@@ -25,6 +26,29 @@ from .browser_manager import BrowserInstanceManager
 from .cookie_store import CookieStore
 
 logger = logging.getLogger(__name__)
+
+def convert_objectid_to_str(document: dict) -> dict:
+    """Convert MongoDB ObjectId fields to strings for JSON serialization"""
+    if document is None:
+        return None
+    
+    # Create a copy to avoid modifying the original
+    converted = document.copy()
+    
+    # Convert _id field if present
+    if '_id' in converted and isinstance(converted['_id'], ObjectId):
+        converted['_id'] = str(converted['_id'])
+    
+    # Convert any other ObjectId fields recursively
+    for key, value in converted.items():
+        if isinstance(value, ObjectId):
+            converted[key] = str(value)
+        elif isinstance(value, dict):
+            converted[key] = convert_objectid_to_str(value)
+        elif isinstance(value, list):
+            converted[key] = [convert_objectid_to_str(item) if isinstance(item, dict) else str(item) if isinstance(item, ObjectId) else item for item in value]
+    
+    return converted
 
 class CrawlConfig(BaseModel):
     """Crawl configuration for different platforms"""
@@ -384,7 +408,8 @@ class ManualCrawlService:
     
     async def get_crawl_task(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Get crawl task by ID"""
-        return await self.crawl_tasks.find_one({"task_id": task_id})
+        task = await self.crawl_tasks.find_one({"task_id": task_id})
+        return convert_objectid_to_str(task) if task else None
     
     async def list_crawl_tasks(
         self,
@@ -406,7 +431,8 @@ class ManualCrawlService:
         cursor = self.crawl_tasks.find(query)
         cursor = cursor.sort("created_at", -1).skip(offset).limit(limit)
         
-        return await cursor.to_list(length=limit)
+        tasks = await cursor.to_list(length=limit)
+        return [convert_objectid_to_str(task) for task in tasks]
     
     async def delete_crawl_task(self, task_id: str, user_id: str) -> bool:
         """Delete a crawl task"""

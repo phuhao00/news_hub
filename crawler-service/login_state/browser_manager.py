@@ -9,11 +9,35 @@ from typing import Dict, Optional, List, Any
 from datetime import datetime, timedelta
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from bson import ObjectId
 import aiofiles
 import psutil
 import logging
 
 logger = logging.getLogger(__name__)
+
+def convert_objectid_to_str(document: dict) -> dict:
+    """Convert MongoDB ObjectId fields to strings for JSON serialization"""
+    if document is None:
+        return None
+    
+    # Create a copy to avoid modifying the original
+    converted = document.copy()
+    
+    # Convert _id field if present
+    if '_id' in converted and isinstance(converted['_id'], ObjectId):
+        converted['_id'] = str(converted['_id'])
+    
+    # Convert any other ObjectId fields recursively
+    for key, value in converted.items():
+        if isinstance(value, ObjectId):
+            converted[key] = str(value)
+        elif isinstance(value, dict):
+            converted[key] = convert_objectid_to_str(value)
+        elif isinstance(value, list):
+            converted[key] = [convert_objectid_to_str(item) if isinstance(item, dict) else str(item) if isinstance(item, ObjectId) else item for item in value]
+    
+    return converted
 
 class BrowserInstanceManager:
     """Browser instance management service with Playwright"""
@@ -117,6 +141,25 @@ class BrowserInstanceManager:
             # Create initial page
             page = await browser.new_page()
             
+            # Navigate to platform homepage or default page
+            platform_urls = {
+                "weibo": "https://weibo.com",
+                "xiaohongshu": "https://www.xiaohongshu.com",
+                "douyin": "https://www.douyin.com"
+            }
+            
+            default_url = platform_urls.get(platform, "https://www.baidu.com")
+            page_url = "about:blank"  # Default to blank page
+            try:
+                logger.info(f"Attempting to navigate to {default_url} for platform {platform}")
+                await page.goto(default_url, wait_until="networkidle", timeout=30000)
+                page_url = page.url
+                logger.info(f"Successfully navigated to {page_url} for platform {platform}")
+            except Exception as nav_error:
+                logger.warning(f"Failed to navigate to {default_url}: {nav_error}, using blank page")
+                # Keep the blank page, don't fail the entire operation
+                page_url = "about:blank"
+            
             # Store instances
             instance_id = f"browser_{uuid.uuid4().hex[:12]}"
             self.browsers[instance_id] = browser
@@ -147,7 +190,7 @@ class BrowserInstanceManager:
                 "platform": platform,
                 "headless": config.get("headless", False),
                 "user_data_dir": user_data_dir,
-                "page_url": page.url,
+                "page_url": page_url,
                 "created_at": instance_data["created_at"],
                 "expires_at": instance_data["expires_at"]
             }
@@ -173,6 +216,9 @@ class BrowserInstanceManager:
                 # Clean up orphaned instance
                 await self._cleanup_instance(instance_id)
                 return None
+            
+            # Convert ObjectId to string for JSON serialization
+            instance_data = convert_objectid_to_str(instance_data)
             
             # Check if instance is expired
             if instance_data["expires_at"] < datetime.utcnow():
@@ -379,9 +425,11 @@ class BrowserInstanceManager:
             
             instances = await cursor.to_list(length=None)
             
-            # Filter out expired instances
+            # Filter out expired instances and convert ObjectId
             valid_instances = []
             for instance in instances:
+                # Convert ObjectId to string for JSON serialization
+                instance = convert_objectid_to_str(instance)
                 if instance["expires_at"] > datetime.utcnow():
                     valid_instances.append(instance)
                 else:

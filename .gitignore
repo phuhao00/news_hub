@@ -195,6 +195,9 @@ bower_components
 local/
 *.local
 
+# Browser data (temporary session files)
+crawler-service/browser_data/
+
 # Monitoring and metrics
 .monitor/
 metrics/
