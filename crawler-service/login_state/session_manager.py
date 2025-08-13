@@ -98,13 +98,16 @@ class SessionManager:
             logger.error(f"Failed to create session: {e}")
             raise
     
-    async def validate_session(self, session_id: str) -> Optional[dict]:
+    async def validate_session(self, session_id: str, check_login_status: bool = False) -> Optional[dict]:
         """Validate session and return session data if valid"""
         try:
             # First check memory cache
             if session_id in self.active_sessions:
                 session_data = self.active_sessions[session_id]
                 if self._is_session_valid(session_data):
+                    # Optionally check login status via browser instances
+                    if check_login_status:
+                        await self._update_session_login_status(session_id, session_data)
                     return session_data
                 else:
                     # Remove expired session from memory
@@ -116,6 +119,9 @@ class SessionManager:
                 if session_data and self._is_session_valid(session_data):
                     # Restore to memory cache
                     self.active_sessions[session_id] = session_data
+                    # Optionally check login status via browser instances
+                    if check_login_status:
+                        await self._update_session_login_status(session_id, session_data)
                     return session_data
             
             # Check database
@@ -128,6 +134,9 @@ class SessionManager:
                     self.active_sessions[session_id] = session_data
                     if self.redis:
                         await self._cache_session(session_id, session_data)
+                    # Optionally check login status via browser instances
+                    if check_login_status:
+                        await self._update_session_login_status(session_id, session_data)
                     return session_data
             
             return None
@@ -337,6 +346,54 @@ class SessionManager:
             logger.error(f"Failed to cleanup expired sessions: {e}")
             return 0
     
+    async def _update_session_login_status(self, session_id: str, session_data: dict):
+        """Update session login status by checking browser instances"""
+        try:
+            # Get browser instances for this session
+            browser_instances = await self.db.browser_instances.find({
+                "session_id": session_id,
+                "is_active": True
+            }).to_list(length=None)
+            
+            if not browser_instances:
+                return
+            
+            # Import browser manager to check login status
+            # Note: This creates a circular import, so we'll do a dynamic import
+            from .browser_manager import BrowserInstanceManager
+            
+            # Check if any browser instance is logged in
+            overall_logged_in = False
+            login_user = None
+            
+            for instance in browser_instances:
+                instance_id = instance["instance_id"]
+                
+                # We need to access the browser manager instance
+                # For now, we'll check the database for recent login detection results
+                recent_session = await self.db.sessions.find_one({
+                    "session_id": session_id,
+                    "login_detection_timestamp": {"$gte": datetime.utcnow() - timedelta(minutes=5)}
+                })
+                
+                if recent_session and recent_session.get("is_logged_in"):
+                    overall_logged_in = True
+                    login_user = recent_session.get("login_user")
+                    break
+            
+            # Update session if login status changed
+            current_login_status = session_data.get("is_logged_in", False)
+            if overall_logged_in != current_login_status:
+                await self.update_login_status(
+                    session_id=session_id,
+                    is_logged_in=overall_logged_in,
+                    login_user=login_user
+                )
+                logger.info(f"Updated session {session_id} login status: {overall_logged_in}")
+                
+        except Exception as e:
+            logger.error(f"Failed to update session login status for {session_id}: {e}")
+    
     def _is_session_valid(self, session_data: dict) -> bool:
         """Check if session is valid (not expired and active)"""
         if not session_data.get("is_active", False):
@@ -401,6 +458,117 @@ class SessionManager:
                 await self.cleanup_expired_sessions()
             except Exception as e:
                 logger.error(f"Error in periodic cleanup: {e}")
+    
+    # Notification methods
+    async def get_user_notifications(self, user_id: str, limit: int = 50, offset: int = 0, unread_only: bool = False):
+        """Get notifications for a user"""
+        try:
+            # Build query filter
+            query_filter = {}
+            
+            # Get user sessions to filter notifications
+            user_sessions = await self.get_user_sessions(user_id)
+            session_ids = [session["session_id"] for session in user_sessions]
+            
+            if session_ids:
+                query_filter["session_id"] = {"$in": session_ids}
+            else:
+                # No sessions for user, return empty list
+                return []
+            
+            if unread_only:
+                query_filter["read"] = {"$ne": True}
+            
+            # Query notifications
+            cursor = self.db.notifications.find(query_filter)
+            cursor = cursor.sort("timestamp", -1).skip(offset).limit(limit)
+            
+            notifications = []
+            async for notification in cursor:
+                notification["_id"] = str(notification["_id"])
+                notifications.append(notification)
+            
+            return notifications
+            
+        except Exception as e:
+            logger.error(f"Failed to get notifications for user {user_id}: {e}")
+            return []
+    
+    async def mark_notification_read(self, notification_id: str, user_id: str) -> bool:
+        """Mark a notification as read"""
+        try:
+            # Verify the notification belongs to the user
+            user_sessions = await self.get_user_sessions(user_id)
+            session_ids = [session["session_id"] for session in user_sessions]
+            
+            result = await self.db.notifications.update_one(
+                {
+                    "_id": ObjectId(notification_id),
+                    "session_id": {"$in": session_ids}
+                },
+                {
+                    "$set": {
+                        "read": True,
+                        "read_at": datetime.utcnow()
+                    }
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            logger.error(f"Failed to mark notification {notification_id} as read: {e}")
+            return False
+    
+    async def mark_all_notifications_read(self, user_id: str) -> int:
+        """Mark all notifications as read for a user"""
+        try:
+            # Get user sessions
+            user_sessions = await self.get_user_sessions(user_id)
+            session_ids = [session["session_id"] for session in user_sessions]
+            
+            if not session_ids:
+                return 0
+            
+            result = await self.db.notifications.update_many(
+                {
+                    "session_id": {"$in": session_ids},
+                    "read": {"$ne": True}
+                },
+                {
+                    "$set": {
+                        "read": True,
+                        "read_at": datetime.utcnow()
+                    }
+                }
+            )
+            
+            return result.modified_count
+            
+        except Exception as e:
+            logger.error(f"Failed to mark all notifications as read for user {user_id}: {e}")
+            return 0
+    
+    async def get_unread_notification_count(self, user_id: str) -> int:
+        """Get unread notification count for a user"""
+        try:
+            # Get user sessions
+            user_sessions = await self.get_user_sessions(user_id)
+            session_ids = [session["session_id"] for session in user_sessions]
+            
+            if not session_ids:
+                return 0
+            
+            count = await self.db.notifications.count_documents({
+                "session_id": {"$in": session_ids},
+                "read": {"$ne": True}
+            })
+            
+            return count
+            
+        except Exception as e:
+            logger.error(f"Failed to get unread notification count for user {user_id}: {e}")
+            return 0
     
     async def get_session_stats(self) -> Dict:
         """Get session statistics"""

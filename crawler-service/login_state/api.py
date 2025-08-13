@@ -96,12 +96,14 @@ async def create_session(
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
 async def get_session(
     session_id: str,
+    check_login: bool = Query(False, description="Whether to check current login status"),
     sm: SessionManager = Depends(get_session_manager),
     bm: BrowserInstanceManager = Depends(get_browser_manager)
 ):
     """Get session information"""
     try:
-        session_data = await sm.validate_session(session_id)
+        # Validate session with optional login status check
+        session_data = await sm.validate_session(session_id, check_login_status=check_login)
         if not session_data:
             raise HTTPException(status_code=404, detail="Session not found or expired")
         
@@ -200,6 +202,67 @@ async def list_user_sessions(
         
     except Exception as e:
         logger.error(f"Failed to list sessions for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/sessions/{session_id}/check-login", response_model=dict)
+async def check_session_login_status(
+    session_id: str,
+    sm: SessionManager = Depends(get_session_manager),
+    bm: BrowserInstanceManager = Depends(get_browser_manager)
+):
+    """Check login status for a session by examining its browser instances"""
+    try:
+        # Validate session exists
+        session_data = await sm.validate_session(session_id)
+        if not session_data:
+            raise HTTPException(status_code=404, detail="Session not found or expired")
+        
+        # Get browser instances for this session
+        browser_instances = await bm.get_session_instances(session_id)
+        
+        if not browser_instances:
+            return {
+                "session_id": session_id,
+                "is_logged_in": False,
+                "message": "No browser instances found for this session",
+                "timestamp": datetime.utcnow()
+            }
+        
+        # Check login status for each browser instance
+        login_results = []
+        overall_logged_in = False
+        
+        for instance in browser_instances:
+            instance_id = instance["instance_id"]
+            login_status = await bm.check_login_status(instance_id)
+            login_results.append({
+                "instance_id": instance_id,
+                "platform": instance.get("platform"),
+                **login_status
+            })
+            
+            if login_status.get("is_logged_in", False):
+                overall_logged_in = True
+        
+        # Update session login status if changed
+        if overall_logged_in != session_data.get("is_logged_in", False):
+            await sm.update_login_status(
+                session_id=session_id,
+                is_logged_in=overall_logged_in,
+                login_user=next((r.get("login_user") for r in login_results if r.get("login_user")), None)
+            )
+        
+        return {
+            "session_id": session_id,
+            "is_logged_in": overall_logged_in,
+            "browser_instances": login_results,
+            "timestamp": datetime.utcnow()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to check login status for session {session_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Browser Instance Management Endpoints
@@ -682,6 +745,88 @@ async def shutdown_managers():
         
     except Exception as e:
         logger.error(f"Error during login state management API shutdown: {e}")
+
+# Notification Endpoints
+
+@router.get("/notifications/{user_id}", response_model=ListResponse)
+async def get_user_notifications(
+    user_id: str,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    unread_only: bool = Query(False),
+    sm: SessionManager = Depends(get_session_manager)
+):
+    """Get notifications for a user"""
+    try:
+        notifications = await sm.get_user_notifications(
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+            unread_only=unread_only
+        )
+        
+        return ListResponse(
+            items=notifications,
+            total=len(notifications),
+            page=(offset // limit) + 1,
+            page_size=limit
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get notifications for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/notifications/{notification_id}/mark-read", response_model=SuccessResponse)
+async def mark_notification_read(
+    notification_id: str,
+    user_id: str = Header(..., alias="X-User-ID"),
+    sm: SessionManager = Depends(get_session_manager)
+):
+    """Mark a notification as read"""
+    try:
+        success = await sm.mark_notification_read(notification_id, user_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Notification not found")
+        
+        return SuccessResponse(message="Notification marked as read")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to mark notification {notification_id} as read: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/notifications/{user_id}/mark-all-read", response_model=SuccessResponse)
+async def mark_all_notifications_read(
+    user_id: str,
+    sm: SessionManager = Depends(get_session_manager)
+):
+    """Mark all notifications as read for a user"""
+    try:
+        count = await sm.mark_all_notifications_read(user_id)
+        
+        return SuccessResponse(
+            message=f"Marked {count} notifications as read",
+            data={"marked_count": count}
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to mark all notifications as read for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/notifications/{user_id}/unread-count", response_model=Dict[str, int])
+async def get_unread_notification_count(
+    user_id: str,
+    sm: SessionManager = Depends(get_session_manager)
+):
+    """Get unread notification count for a user"""
+    try:
+        count = await sm.get_unread_notification_count(user_id)
+        return {"unread_count": count}
+        
+    except Exception as e:
+        logger.error(f"Failed to get unread notification count for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Manual Crawl Endpoints
 

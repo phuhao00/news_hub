@@ -85,6 +85,27 @@ class BrowserInstanceManager:
         
         # Start cleanup task
         asyncio.create_task(self._periodic_cleanup())
+        
+        # Login detection configuration
+        self.login_detection_enabled = True
+        self.login_check_interval = 30  # seconds
+        self.login_detection_selectors = {
+            "weibo": {
+                "logged_in_selectors": [".gn_name", ".WB_miniblog", ".gn_usercard"],
+                "login_selectors": [".loginBtn", ".login", ".WB_login"]
+            },
+            "xiaohongshu": {
+                "logged_in_selectors": [".user-info", ".avatar", ".username"],
+                "login_selectors": [".login-btn", ".sign-in"]
+            },
+            "douyin": {
+                "logged_in_selectors": [".user-info", ".avatar-wrap", ".user-name"],
+                "login_selectors": [".login-button", ".login-text"]
+            }
+        }
+        
+        # Start login detection task
+        asyncio.create_task(self._periodic_login_detection())
     
     async def initialize(self):
         """Initialize Playwright"""
@@ -625,9 +646,171 @@ class BrowserInstanceManager:
             logger.error(f"Failed to get instance stats: {e}")
             return {}
     
+    async def check_login_status(self, instance_id: str) -> dict:
+        """Check login status for a browser instance"""
+        try:
+            if instance_id not in self.browsers:
+                return {"is_logged_in": False, "error": "Instance not found"}
+            
+            # Get instance data from database
+            instance_data = await self.db.browser_instances.find_one({
+                "instance_id": instance_id,
+                "is_active": True
+            })
+            
+            if not instance_data:
+                return {"is_logged_in": False, "error": "Instance data not found"}
+            
+            platform = instance_data["platform"]
+            main_page_key = f"{instance_id}_main"
+            
+            if main_page_key not in self.pages:
+                return {"is_logged_in": False, "error": "No main page found"}
+            
+            page = self.pages[main_page_key]
+            
+            # Get platform-specific selectors
+            selectors = self.login_detection_selectors.get(platform, {})
+            logged_in_selectors = selectors.get("logged_in_selectors", [])
+            login_selectors = selectors.get("login_selectors", [])
+            
+            # Check for logged-in indicators
+            is_logged_in = False
+            login_user = None
+            
+            for selector in logged_in_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        is_logged_in = True
+                        # Try to extract username if possible
+                        if selector in [".gn_name", ".username", ".user-name"]:
+                            login_user = await element.text_content()
+                        break
+                except Exception:
+                    continue
+            
+            # If not logged in, check for login buttons
+            has_login_button = False
+            if not is_logged_in:
+                for selector in login_selectors:
+                    try:
+                        element = await page.query_selector(selector)
+                        if element:
+                            has_login_button = True
+                            break
+                    except Exception:
+                        continue
+            
+            # Get current URL for context
+            current_url = page.url
+            
+            return {
+                "is_logged_in": is_logged_in,
+                "login_user": login_user,
+                "has_login_button": has_login_button,
+                "current_url": current_url,
+                "platform": platform,
+                "timestamp": datetime.utcnow()
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to check login status for instance {instance_id}: {e}")
+            return {"is_logged_in": False, "error": str(e)}
+    
+    async def _periodic_login_detection(self):
+        """Periodic login status detection for all active instances"""
+        while True:
+            try:
+                if not self.login_detection_enabled:
+                    await asyncio.sleep(self.login_check_interval)
+                    continue
+                
+                # Check login status for all active instances
+                for instance_id in list(self.browsers.keys()):
+                    try:
+                        login_status = await self.check_login_status(instance_id)
+                        
+                        if "error" not in login_status:
+                            # Update session login status if changed
+                            instance_data = await self.db.browser_instances.find_one({
+                                "instance_id": instance_id,
+                                "is_active": True
+                            })
+                            
+                            if instance_data:
+                                session_id = instance_data["session_id"]
+                                
+                                # Update session manager with login status
+                                from .session_manager import SessionManager
+                                # Note: This would need proper dependency injection in production
+                                # For now, we'll update the database directly
+                                
+                                # Check if login status changed
+                                current_session = await self.db.sessions.find_one({"session_id": session_id})
+                                previous_login_status = current_session.get("is_logged_in", False) if current_session else False
+                                
+                                await self.db.sessions.update_one(
+                                    {"session_id": session_id},
+                                    {
+                                        "$set": {
+                                            "is_logged_in": login_status["is_logged_in"],
+                                            "login_user": login_status.get("login_user"),
+                                            "last_activity": datetime.utcnow(),
+                                            "login_detection_timestamp": login_status["timestamp"]
+                                        }
+                                    }
+                                )
+                                
+                                # Send notification if login status changed
+                                if login_status["is_logged_in"] != previous_login_status:
+                                    await self._send_login_status_notification(
+                                        session_id, 
+                                        login_status["is_logged_in"], 
+                                        login_status.get("login_user"),
+                                        login_status["platform"]
+                                    )
+                                
+                                logger.debug(f"Updated login status for session {session_id}: {login_status['is_logged_in']}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error checking login status for instance {instance_id}: {e}")
+                
+                await asyncio.sleep(self.login_check_interval)
+                
+            except Exception as e:
+                logger.error(f"Error in periodic login detection: {e}")
+                await asyncio.sleep(self.login_check_interval)
+    
+    async def _send_login_status_notification(self, session_id: str, is_logged_in: bool, login_user: str = None, platform: str = None):
+        """Send notification when login status changes"""
+        try:
+            # Create notification record in database
+            notification = {
+                "session_id": session_id,
+                "type": "login_status_change",
+                "is_logged_in": is_logged_in,
+                "login_user": login_user,
+                "platform": platform,
+                "timestamp": datetime.utcnow(),
+                "message": f"登录状态变更: {'已登录' if is_logged_in else '已退出'}" + (f" (用户: {login_user})" if login_user else "")
+            }
+            
+            # Store notification in database
+            await self.db.notifications.insert_one(notification)
+            
+            # Log the notification
+            logger.info(f"Login status notification sent for session {session_id}: {'logged in' if is_logged_in else 'logged out'}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send login status notification for session {session_id}: {e}")
+    
     async def shutdown(self):
         """Shutdown browser manager and close all instances"""
         try:
+            # Disable login detection
+            self.login_detection_enabled = False
+            
             # Close all browser instances
             for instance_id in list(self.browsers.keys()):
                 await self.close_browser_instance(instance_id)

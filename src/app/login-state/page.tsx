@@ -26,7 +26,8 @@ import {
   Cookie,
   Download,
   Upload,
-  BarChart3
+  BarChart3,
+  Bell
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -95,6 +96,13 @@ export default function LoginStatePage() {
   const [statistics, setStatistics] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validatingSession, setValidatingSession] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(30); // 30秒
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [checkingLoginStatus, setCheckingLoginStatus] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // API 调用函数
   const apiCall = async (endpoint: string, options: RequestInit = {}) => {
@@ -122,9 +130,88 @@ export default function LoginStatePage() {
     }
   };
 
+  // 检查会话登录状态
+  const checkSessionLoginStatus = async (sessionId: string) => {
+    setCheckingLoginStatus(sessionId);
+    try {
+      const result = await apiCall(`/sessions/${sessionId}/check-login`, {
+        method: 'POST'
+      });
+      
+      if (result.is_logged_in) {
+        const loginUser = result.browser_instances?.find(bi => bi.login_user)?.login_user;
+        toast.success(`检测到登录状态 - 用户: ${loginUser || '未知'}`);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to check login status:', error);
+      return null;
+    } finally {
+      setCheckingLoginStatus(null);
+    }
+  };
+
+  // 获取通知
+  const loadNotifications = async () => {
+    try {
+      const response = await apiCall('/notifications/default_user');
+      if (response.items) {
+        setNotifications(response.items);
+      }
+    } catch (error) {
+      console.error('获取通知失败:', error);
+    }
+  };
+
+  // 获取未读通知数量
+  const loadUnreadCount = async () => {
+    try {
+      const response = await apiCall('/notifications/default_user/unread-count');
+      if (response.unread_count !== undefined) {
+        setUnreadCount(response.unread_count);
+      }
+    } catch (error) {
+      console.error('获取未读通知数量失败:', error);
+    }
+  };
+
+  // 标记通知为已读
+  const markNotificationRead = async (notificationId: string) => {
+    try {
+      await apiCall(`/notifications/${notificationId}/mark-read`, {
+        method: 'POST',
+        headers: {
+          'X-User-ID': 'default_user'
+        }
+      });
+      await loadNotifications();
+      await loadUnreadCount();
+    } catch (error) {
+      console.error('标记通知已读失败:', error);
+    }
+  };
+
+  // 标记所有通知为已读
+  const markAllNotificationsRead = async () => {
+    try {
+      await apiCall('/notifications/default_user/mark-all-read', {
+        method: 'POST'
+      });
+      await loadNotifications();
+      await loadUnreadCount();
+      toast.success('所有通知已标记为已读');
+    } catch (error) {
+      console.error('标记所有通知已读失败:', error);
+      toast.error('标记所有通知已读失败');
+    }
+  };
+
   // 加载数据
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     setError(null);
     try {
       // 首先获取会话列表
@@ -148,16 +235,25 @@ export default function LoginStatePage() {
       ]);
       
       setSessions(sessions);
-       setBrowserInstances(allInstances);
-       setCrawlTasks(tasksData.items || []);
-       setStatistics(statsData);
+      setBrowserInstances(allInstances);
+      setCrawlTasks(tasksData.items || []);
+      setStatistics(statsData);
+      setLastRefresh(new Date());
+      
+      // 加载通知数据
+      await loadNotifications();
+      await loadUnreadCount();
     } catch (error) {
       console.error('Failed to load data:', error);
       const errorMessage = error instanceof Error ? error.message : '加载数据失败';
       setError(errorMessage);
-      toast.error(errorMessage);
+      if (!silent) {
+        toast.error(errorMessage);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -337,9 +433,42 @@ export default function LoginStatePage() {
     }
   };
 
+  // 初始化和定时刷新
   useEffect(() => {
     loadData();
   }, []);
+
+  // 自动刷新机制
+  useEffect(() => {
+    if (!autoRefresh) return;
+
+    const interval = setInterval(() => {
+      loadData(true); // 静默刷新，不显示loading状态
+    }, refreshInterval * 1000);
+
+    return () => clearInterval(interval);
+  }, [autoRefresh, refreshInterval]);
+
+  // 定期检查活跃会话的登录状态
+  useEffect(() => {
+    if (!autoRefresh) return;
+
+    const loginCheckInterval = setInterval(async () => {
+      const activeSessions = sessions.filter(s => s.status === 'active' && !s.login_status);
+      
+      for (const session of activeSessions) {
+        try {
+          await checkSessionLoginStatus(session.session_id);
+          // 添加延迟避免过于频繁的请求
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (error) {
+          console.warn(`Failed to check login status for session ${session.session_id}:`, error);
+        }
+      }
+    }, 60000); // 每分钟检查一次登录状态
+
+    return () => clearInterval(loginCheckInterval);
+  }, [autoRefresh, sessions]);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -368,11 +497,116 @@ export default function LoginStatePage() {
           <p className="text-muted-foreground mt-2">
             管理平台登录会话、浏览器实例和手动爬取任务
           </p>
+          {lastRefresh && (
+            <p className="text-xs text-muted-foreground mt-1">
+              最后更新: {lastRefresh.toLocaleTimeString()}
+            </p>
+          )}
         </div>
-        <Button onClick={loadData} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          刷新
-        </Button>
+        <div className="flex items-center space-x-4">
+          {/* 自动刷新控制 */}
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="auto-refresh" className="text-sm">
+              自动刷新
+            </Label>
+            <input
+              id="auto-refresh"
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="rounded"
+            />
+            {autoRefresh && (
+              <Select value={refreshInterval.toString()} onValueChange={(value) => setRefreshInterval(parseInt(value))}>
+                <SelectTrigger className="w-20">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="15">15s</SelectItem>
+                  <SelectItem value="30">30s</SelectItem>
+                  <SelectItem value="60">60s</SelectItem>
+                  <SelectItem value="120">2m</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+          <Button onClick={() => loadData()} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            手动刷新
+          </Button>
+          
+          {/* 通知按钮 */}
+          <div className="relative">
+            <Button
+              onClick={() => setShowNotifications(!showNotifications)}
+              variant="outline"
+              className="relative"
+            >
+              <Bell className="h-4 w-4 mr-2" />
+              通知
+              {unreadCount > 0 && (
+                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </Button>
+            
+            {/* 通知下拉菜单 */}
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+                  <h3 className="font-semibold text-gray-900">通知</h3>
+                  {unreadCount > 0 && (
+                    <Button
+                      onClick={markAllNotificationsRead}
+                      variant="ghost"
+                      size="sm"
+                      className="text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      全部标记已读
+                    </Button>
+                  )}
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-4 text-center text-gray-500">
+                      暂无通知
+                    </div>
+                  ) : (
+                    notifications.map((notification) => (
+                      <div
+                        key={notification._id}
+                        className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
+                          !notification.read ? 'bg-blue-50' : ''
+                        }`}
+                        onClick={() => !notification.read && markNotificationRead(notification._id)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <p className={`text-sm ${!notification.read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
+                              {notification.message}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {new Date(notification.timestamp).toLocaleString()}
+                            </p>
+                            {notification.platform && (
+                              <span className="inline-block mt-1 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">
+                                {notification.platform}
+                              </span>
+                            )}
+                          </div>
+                          {!notification.read && (
+                            <div className="w-2 h-2 bg-blue-500 rounded-full ml-2 mt-1"></div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 错误提示 */}
@@ -529,6 +763,15 @@ export default function LoginStatePage() {
                           >
                             <RefreshCw className={`h-4 w-4 mr-1 ${validatingSession === session.session_id ? 'animate-spin' : ''}`} />
                             验证状态
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => checkSessionLoginStatus(session.session_id)}
+                            disabled={checkingLoginStatus === session.session_id}
+                          >
+                            <Eye className={`h-4 w-4 mr-1 ${checkingLoginStatus === session.session_id ? 'animate-spin' : ''}`} />
+                            检查登录
                           </Button>
                           <Button
                             size="sm"
