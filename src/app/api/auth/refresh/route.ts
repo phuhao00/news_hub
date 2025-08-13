@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AuthResponse, generateRefreshToken, generateToken, getUserSafeById, verifyRefreshToken } from '@/lib/auth';
+import { AuthResponse, generateRefreshToken, generateToken, getUserSafeById, verifyRefreshToken, findUserById } from '@/lib/auth-backend';
 
 export async function POST(request: Request) {
   try {
@@ -22,27 +22,34 @@ export async function POST(request: Request) {
     }
 
     // Find user
-    const user = getUserSafeById(payload.userId);
+    const user = await findUserById(payload.userId);
 
     if (!user) {
       return NextResponse.json(
         { success: false, message: '用户不存在' },
-        { status: 401 }
+        { status: 404 }
       );
     }
 
     // Generate new tokens
-    const newToken = generateToken(user.id);
-    const newRefreshToken = generateRefreshToken(user.id);
+    const newToken = generateToken(user);
+    const newRefreshToken = generateRefreshToken(user);
 
     // Prepare response
-    const userResponse = user;
-
     const authResponse: AuthResponse = {
-      user: userResponse,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        permissions: user.permissions,
+        avatar: user.avatar,
+        createdAt: user.createdAt.toISOString(),
+        lastLogin: user.lastLogin?.toISOString()
+      },
       token: newToken,
       refreshToken: newRefreshToken,
-      expiresIn: 24 * 60 * 60,
+      expiresIn: 3600,
     };
 
     return NextResponse.json({
@@ -58,4 +65,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

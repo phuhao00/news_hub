@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getUserSafeById, verifyToken } from '@/lib/auth';
+import { getUserSafeById, verifyToken } from '@/lib/auth-backend';
 
 export async function GET(request: Request) {
   try {
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     }
 
     // Find user
-    const user = getUserSafeById(payload.userId);
+    const user = await getUserSafeById(payload.userId);
 
     if (!user) {
       return NextResponse.json(
@@ -42,4 +42,4 @@ export async function GET(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

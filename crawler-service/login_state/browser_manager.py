@@ -95,8 +95,20 @@ class BrowserInstanceManager:
                 "login_selectors": [".loginBtn", ".login", ".WB_login"]
             },
             "xiaohongshu": {
-                "logged_in_selectors": [".user-info", ".avatar", ".username"],
-                "login_selectors": [".login-btn", ".sign-in"]
+                "logged_in_selectors": [
+                    ".user-info", ".avatar", ".username", ".user-name",
+                    "[data-testid='user-avatar']", ".user-avatar", ".profile-avatar",
+                    ".header-user", ".nav-user", ".user-menu", ".user-dropdown",
+                    "img[alt*='头像']", "img[alt*='avatar']", ".user-profile",
+                    ".login-user", ".current-user", ".user-info-name",
+                    "[class*='user']", "[class*='avatar']", "[class*='profile']"
+                ],
+                "login_selectors": [
+                    ".login-btn", ".sign-in", ".login-button", ".signin-btn",
+                    "button[type='submit']", "[data-testid='login-btn']",
+                    "a[href*='login']", "button:contains('登录')", "button:contains('登陆')",
+                    ".auth-btn", ".login-link", ".signin-link"
+                ]
             },
             "douyin": {
                 "logged_in_selectors": [".user-info", ".avatar-wrap", ".user-name"],
@@ -120,6 +132,10 @@ class BrowserInstanceManager:
     async def create_browser_instance(self, session_id: str, platform: str, 
                                     headless: bool = None, custom_config: dict = None) -> dict:
         """Create a new browser instance for a session"""
+        browser = None
+        page = None
+        instance_id = None
+        
         try:
             await self.initialize()
             
@@ -143,24 +159,62 @@ class BrowserInstanceManager:
             user_data_dir = os.path.join(self.data_dir, f"session_{session_id}")
             os.makedirs(user_data_dir, exist_ok=True)
             
-            # Launch browser
-            browser = await self.playwright.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=config.get("headless", False),
-                viewport=config.get("viewport"),
-                user_agent=config.get("user_agent"),
-                locale=config.get("locale"),
-                timezone_id=config.get("timezone_id"),
-                args=[
-                    "--no-sandbox",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-web-security",
-                    "--disable-features=VizDisplayCompositor"
-                ]
-            )
+            # Generate instance ID early for cleanup purposes
+            instance_id = f"browser_{uuid.uuid4().hex[:12]}"
             
-            # Create initial page
-            page = await browser.new_page()
+            # Launch browser with retry mechanism
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Attempting to launch browser (attempt {attempt + 1}/{max_retries})")
+                    
+                    # Enhanced browser launch arguments for better stability
+                    launch_args = [
+                        "--no-sandbox",
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-web-security",
+                        "--disable-features=VizDisplayCompositor",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "--disable-background-timer-throttling",
+                        "--disable-backgrounding-occluded-windows",
+                        "--disable-renderer-backgrounding"
+                    ]
+                    
+                    browser = await self.playwright.chromium.launch_persistent_context(
+                        user_data_dir=user_data_dir,
+                        headless=config.get("headless", True),  # Default to headless for stability
+                        viewport=config.get("viewport"),
+                        user_agent=config.get("user_agent"),
+                        locale=config.get("locale"),
+                        timezone_id=config.get("timezone_id"),
+                        args=launch_args,
+                        ignore_default_args=["--enable-automation"],
+                        slow_mo=100  # Add small delay between actions for stability
+                    )
+                    
+                    logger.info(f"Browser launched successfully on attempt {attempt + 1}")
+                    break
+                    
+                except Exception as launch_error:
+                    logger.warning(f"Browser launch attempt {attempt + 1} failed: {launch_error}")
+                    if attempt == max_retries - 1:
+                        raise Exception(f"Failed to launch browser after {max_retries} attempts: {launch_error}")
+                    
+                    # Wait before retry
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+            
+            # Create initial page with error handling
+            try:
+                page = await browser.new_page()
+                logger.info(f"Initial page created for instance {instance_id}")
+            except Exception as page_error:
+                logger.error(f"Failed to create initial page: {page_error}")
+                if browser:
+                    await browser.close()
+                raise Exception(f"Failed to create initial page: {page_error}")
             
             # Navigate to platform homepage or default page
             platform_urls = {
@@ -171,18 +225,23 @@ class BrowserInstanceManager:
             
             default_url = platform_urls.get(platform, "https://www.baidu.com")
             page_url = "about:blank"  # Default to blank page
+            
+            # Navigation with timeout and error handling
             try:
                 logger.info(f"Attempting to navigate to {default_url} for platform {platform}")
-                await page.goto(default_url, wait_until="networkidle", timeout=30000)
+                await page.goto(default_url, wait_until="domcontentloaded", timeout=15000)  # Reduced timeout
                 page_url = page.url
                 logger.info(f"Successfully navigated to {page_url} for platform {platform}")
             except Exception as nav_error:
-                logger.warning(f"Failed to navigate to {default_url}: {nav_error}, using blank page")
+                logger.warning(f"Failed to navigate to {default_url}: {nav_error}, keeping blank page")
                 # Keep the blank page, don't fail the entire operation
-                page_url = "about:blank"
+                try:
+                    await page.goto("about:blank", timeout=5000)
+                    page_url = "about:blank"
+                except Exception:
+                    page_url = "about:blank"
             
             # Store instances
-            instance_id = f"browser_{uuid.uuid4().hex[:12]}"
             self.browsers[instance_id] = browser
             self.pages[f"{instance_id}_main"] = page
             
@@ -209,7 +268,7 @@ class BrowserInstanceManager:
                 "instance_id": instance_id,
                 "session_id": session_id,
                 "platform": platform,
-                "headless": config.get("headless", False),
+                "headless": config.get("headless", True),
                 "user_data_dir": user_data_dir,
                 "page_url": page_url,
                 "created_at": instance_data["created_at"],
@@ -218,7 +277,22 @@ class BrowserInstanceManager:
             
         except Exception as e:
             logger.error(f"Failed to create browser instance for session {session_id}: {e}")
-            raise
+            
+            # Cleanup on failure
+            try:
+                if browser:
+                    await browser.close()
+                    logger.info(f"Cleaned up browser instance after failure")
+                if instance_id and instance_id in self.browsers:
+                    del self.browsers[instance_id]
+                if instance_id:
+                    pages_to_remove = [key for key in self.pages.keys() if key.startswith(f"{instance_id}_")]
+                    for page_key in pages_to_remove:
+                        del self.pages[page_key]
+            except Exception as cleanup_error:
+                logger.error(f"Error during cleanup: {cleanup_error}")
+            
+            raise Exception(f"Failed to create browser instance: {str(e)}")
     
     async def get_browser_instance(self, instance_id: str) -> Optional[dict]:
         """Get browser instance information"""
@@ -647,7 +721,7 @@ class BrowserInstanceManager:
             return {}
     
     async def check_login_status(self, instance_id: str) -> dict:
-        """Check login status for a browser instance"""
+        """Check login status for a browser instance with enhanced detection"""
         try:
             if instance_id not in self.browsers:
                 return {"is_logged_in": False, "error": "Instance not found"}
@@ -674,6 +748,157 @@ class BrowserInstanceManager:
             logged_in_selectors = selectors.get("logged_in_selectors", [])
             login_selectors = selectors.get("login_selectors", [])
             
+            # Enhanced login detection for xiaohongshu
+            if platform == "xiaohongshu":
+                return await self._check_xiaohongshu_login_status(page, logged_in_selectors, login_selectors)
+            
+            # Default login detection for other platforms
+            return await self._check_default_login_status(page, logged_in_selectors, login_selectors, platform)
+            
+        except Exception as e:
+            logger.error(f"Failed to check login status for instance {instance_id}: {e}")
+            return {"is_logged_in": False, "error": str(e)}
+    
+    async def _check_xiaohongshu_login_status(self, page, logged_in_selectors: list, login_selectors: list) -> dict:
+        """Enhanced login status detection specifically for xiaohongshu"""
+        try:
+            is_logged_in = False
+            login_user = None
+            detection_method = None
+            
+            # Method 1: Check for user avatar or profile elements
+            avatar_selectors = [
+                "img[alt*='头像']", "img[alt*='avatar']", ".user-avatar img", ".profile-avatar img",
+                "[data-testid='user-avatar'] img", ".header-user img", ".nav-user img"
+            ]
+            
+            for selector in avatar_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        src = await element.get_attribute('src')
+                        if src and 'avatar' in src.lower() and 'default' not in src.lower():
+                            is_logged_in = True
+                            detection_method = f"avatar_detected:{selector}"
+                            break
+                except Exception:
+                    continue
+            
+            # Method 2: Check for username or user info text
+            if not is_logged_in:
+                username_selectors = [
+                    ".user-name", ".username", ".user-info-name", ".profile-name",
+                    "[data-testid='username']", ".header-user-name", ".nav-username"
+                ]
+                
+                for selector in username_selectors:
+                    try:
+                        element = await page.query_selector(selector)
+                        if element:
+                            text = await element.text_content()
+                            if text and text.strip() and len(text.strip()) > 0:
+                                is_logged_in = True
+                                login_user = text.strip()
+                                detection_method = f"username_detected:{selector}"
+                                break
+                    except Exception:
+                        continue
+            
+            # Method 3: Check for user dropdown or menu
+            if not is_logged_in:
+                menu_selectors = [
+                    ".user-menu", ".user-dropdown", ".profile-menu", ".header-user-menu",
+                    "[data-testid='user-menu']", ".user-actions", ".account-menu"
+                ]
+                
+                for selector in menu_selectors:
+                    try:
+                        element = await page.query_selector(selector)
+                        if element:
+                            is_logged_in = True
+                            detection_method = f"menu_detected:{selector}"
+                            break
+                    except Exception:
+                        continue
+            
+            # Method 4: Check URL patterns for logged-in state
+            if not is_logged_in:
+                current_url = page.url
+                logged_in_url_patterns = ['/user/', '/profile/', '/settings/', '/account/']
+                if any(pattern in current_url for pattern in logged_in_url_patterns):
+                    is_logged_in = True
+                    detection_method = f"url_pattern_detected:{current_url}"
+            
+            # Method 5: Execute JavaScript to check for login state
+            if not is_logged_in:
+                try:
+                    js_result = await page.evaluate("""
+                        () => {
+                            // Check for common login indicators in xiaohongshu
+                            const indicators = [
+                                () => document.querySelector('.user-avatar'),
+                                () => document.querySelector('[class*="user"][class*="info"]'),
+                                () => document.querySelector('img[src*="avatar"]'),
+                                () => document.cookie.includes('session') || document.cookie.includes('token'),
+                                () => localStorage.getItem('user') || sessionStorage.getItem('user'),
+                                () => window.location.href.includes('/user/') || window.location.href.includes('/profile/')
+                            ];
+                            
+                            for (let i = 0; i < indicators.length; i++) {
+                                try {
+                                    if (indicators[i]()) {
+                                        return { detected: true, method: `js_indicator_${i}` };
+                                    }
+                                } catch (e) {
+                                    continue;
+                                }
+                            }
+                            
+                            return { detected: false, method: null };
+                        }
+                    """)
+                    
+                    if js_result and js_result.get('detected'):
+                        is_logged_in = True
+                        detection_method = f"javascript:{js_result.get('method')}"
+                        
+                except Exception as js_error:
+                    logger.debug(f"JavaScript detection failed: {js_error}")
+            
+            # Fallback: Check for login buttons (indicates not logged in)
+            has_login_button = False
+            if not is_logged_in:
+                for selector in login_selectors:
+                    try:
+                        element = await page.query_selector(selector)
+                        if element:
+                            has_login_button = True
+                            break
+                    except Exception:
+                        continue
+            
+            current_url = page.url
+            
+            result = {
+                "is_logged_in": is_logged_in,
+                "login_user": login_user,
+                "has_login_button": has_login_button,
+                "current_url": current_url,
+                "platform": "xiaohongshu",
+                "detection_method": detection_method,
+                "timestamp": datetime.utcnow()
+            }
+            
+            logger.info(f"Xiaohongshu login status check: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to check xiaohongshu login status: {e}")
+            return {"is_logged_in": False, "error": str(e), "platform": "xiaohongshu"}
+    
+    async def _check_default_login_status(self, page, logged_in_selectors: list, login_selectors: list, platform: str) -> dict:
+        """Default login status detection for other platforms"""
+        try:
             # Check for logged-in indicators
             is_logged_in = False
             login_user = None
@@ -715,8 +940,8 @@ class BrowserInstanceManager:
             }
             
         except Exception as e:
-            logger.error(f"Failed to check login status for instance {instance_id}: {e}")
-            return {"is_logged_in": False, "error": str(e)}
+            logger.error(f"Failed default login status check for {platform}: {e}")
+            return {"is_logged_in": False, "error": str(e), "platform": platform}
     
     async def _periodic_login_detection(self):
         """Periodic login status detection for all active instances"""

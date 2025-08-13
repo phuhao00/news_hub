@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AuthResponse, LoginCredentials, findUserByUsernameOrEmail, generateRefreshToken, generateToken, sanitizeUser, updateLastLogin } from '@/lib/auth';
+import { AuthResponse, LoginCredentials, findUserByUsernameOrEmail, generateRefreshToken, generateToken, sanitizeUser, updateLastLogin, verifyPassword } from '@/lib/auth-backend';
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     }
 
     // Find user
-    const user = findUserByUsernameOrEmail(credentials.username);
+    const user = await findUserByUsernameOrEmail(credentials.username);
 
     if (!user) {
       return NextResponse.json(
@@ -23,8 +23,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Verify password (in production, compare hashed passwords)
-    if (user.password !== credentials.password) {
+    // Verify password
+    const isPasswordValid = await verifyPassword(credentials.password, user.password);
+    if (!isPasswordValid) {
       return NextResponse.json(
         { success: false, message: '密码错误' },
         { status: 401 }
@@ -32,11 +33,11 @@ export async function POST(request: Request) {
     }
 
     // Generate tokens
-    const token = generateToken(user.id);
-    const refreshToken = generateRefreshToken(user.id);
+    const token = generateToken(user);
+    const refreshToken = generateRefreshToken(user);
 
     // Update last login
-    updateLastLogin(user.id);
+    await updateLastLogin(user.id);
 
     // Prepare response (exclude password)
     const userResponse = sanitizeUser(user);
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
       user: userResponse,
       token,
       refreshToken,
-      expiresIn: 24 * 60 * 60, // 24 hours in seconds
+      expiresIn: 3600, // 1 hour
     };
 
     return NextResponse.json({
@@ -61,4 +62,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

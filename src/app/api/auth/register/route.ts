@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { AuthResponse, RegisterData, addUser, findUserByUsernameOrEmail, generateRefreshToken, generateToken, sanitizeUser } from '@/lib/auth';
+import { AuthResponse, RegisterData, addUser, findUserByUsernameOrEmail, generateRefreshToken, generateToken, sanitizeUser } from '@/lib/auth-backend';
 
 function validateEmail(email: string): boolean {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     }
 
     // Check if user already exists
-    const existingUser = findUserByUsernameOrEmail(data.username) || findUserByUsernameOrEmail(data.email);
+    const existingUser = await findUserByUsernameOrEmail(data.username) || await findUserByUsernameOrEmail(data.email);
 
     if (existingUser) {
       const field = existingUser.username === data.username ? 'username' : 'email';
@@ -83,15 +83,15 @@ export async function POST(request: Request) {
     }
 
     // Create new user
-    const newUser = addUser({
+    const newUser = await addUser({
       username: data.username,
       email: data.email,
       password: data.password,
     });
 
     // Generate tokens
-    const token = generateToken(newUser.id);
-    const refreshToken = generateRefreshToken(newUser.id);
+    const token = generateToken(newUser);
+    const refreshToken = generateRefreshToken(newUser);
 
     // Prepare response (exclude password)
     const userResponse = sanitizeUser(newUser);
@@ -116,4 +116,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

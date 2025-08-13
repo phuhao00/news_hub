@@ -279,7 +279,6 @@ class UnifiedCrawlerService:
             browser_config = BrowserConfig(
                 browser_type="chromium",
                 headless=False,  # Non-headless mode is harder to detect
-                enable_stealth=True,  # Enable stealth mode
                 viewport_width=1920,
                 viewport_height=1080,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -4596,7 +4595,7 @@ async def lifespan(app: FastAPI):
         try:
             # 创建MongoDB连接
             from motor.motor_asyncio import AsyncIOMotorClient
-            mongo_client = AsyncIOMotorClient("mongodb://localhost:27017")
+            mongo_client = AsyncIOMotorClient("mongodb://localhost:27015")
             db = mongo_client.newshub
             
             # 创建Redis连接

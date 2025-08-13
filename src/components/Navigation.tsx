@@ -9,7 +9,7 @@ const Navigation = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const navItems = [
-    { href: '/', label: 'Dashboard', icon: '🏠' },
+    { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
     { href: '/content', label: 'Content', icon: '📝' },
     { href: '/crawler', label: 'Crawler', icon: '🕷️' },
     { href: '/login-state', label: 'Login State', icon: '🔐' },

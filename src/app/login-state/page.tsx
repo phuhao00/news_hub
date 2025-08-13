@@ -27,7 +27,8 @@ import {
   Download,
   Upload,
   BarChart3,
-  Bell
+  Bell,
+  Search
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -141,11 +142,17 @@ export default function LoginStatePage() {
       if (result.is_logged_in) {
         const loginUser = result.browser_instances?.find(bi => bi.login_user)?.login_user;
         toast.success(`检测到登录状态 - 用户: ${loginUser || '未知'}`);
+      } else {
+        toast.info('当前会话未检测到登录状态');
       }
+      
+      // 刷新数据以更新UI
+      await loadData(true);
       
       return result;
     } catch (error) {
       console.error('Failed to check login status:', error);
+      toast.error('检查登录状态失败');
       return null;
     } finally {
       setCheckingLoginStatus(null);
@@ -752,18 +759,41 @@ export default function LoginStatePage() {
                             {getStatusIcon(session.status)}
                             <span className="ml-1">{session.status}</span>
                           </Badge>
-                          <Badge variant={session.login_status ? 'default' : 'secondary'}>
-                            {session.login_status ? '已登录' : '未登录'}
-                          </Badge>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => validateSession(session.session_id)}
-                            disabled={validatingSession === session.session_id}
-                          >
-                            <RefreshCw className={`h-4 w-4 mr-1 ${validatingSession === session.session_id ? 'animate-spin' : ''}`} />
-                            验证状态
-                          </Button>
+                          <div className="flex items-center space-x-2">
+                            <Badge variant={session.login_status ? 'default' : 'secondary'} className={session.login_status ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}>
+                              {session.login_status ? '✅ 已登录' : '❌ 未登录'}
+                            </Badge>
+                            {session.login_user && (
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                                👤 {session.login_user}
+                              </Badge>
+                            )}
+                            {session.platform === 'xiaohongshu' && session.detection_method && (
+                              <Badge variant="outline" className="bg-purple-50 text-purple-700 text-xs">
+                                🔍 {session.detection_method}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex space-x-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => validateSession(session.session_id)}
+                              disabled={validatingSession === session.session_id}
+                            >
+                              <RefreshCw className={`h-4 w-4 mr-1 ${validatingSession === session.session_id ? 'animate-spin' : ''}`} />
+                              验证状态
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => checkSessionLoginStatus(session.session_id)}
+                              disabled={checkingLoginStatus === session.session_id}
+                            >
+                              <Search className={`h-4 w-4 mr-1 ${checkingLoginStatus === session.session_id ? 'animate-spin' : ''}`} />
+                              检查登录
+                            </Button>
+                          </div>
                           <Button
                             size="sm"
                             variant="outline"

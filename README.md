@@ -68,8 +68,47 @@ MongoDB (数据存储)
 
 ## 🚀 快速开始
 
-### 安装依赖
+### 📋 系统要求
+- **Node.js**: 18.0+ (推荐 LTS 版本)
+- **Python**: 3.9+ (推荐 3.11)
+- **Go**: 1.19+ (推荐 1.21)
+- **MongoDB**: 6.0+ (社区版)
+- **Docker**: 20.10+ (可选，用于 MinIO)
+- **内存**: 最低 4GB，推荐 8GB+
+- **存储**: 最低 10GB 可用空间
 
+### ⚡ 一键启动 (推荐)
+
+#### Windows (PowerShell)
+```powershell
+# 管理员权限运行 PowerShell
+.\start-all.ps1
+```
+
+#### Linux/macOS
+```bash
+# 添加执行权限
+chmod +x start.sh stop.sh start-all.ps1
+
+# 启动所有服务
+./start.sh
+```
+
+#### Windows (批处理)
+```cmd
+# 双击运行或命令行执行
+start.bat
+```
+
+### 🔧 手动安装
+
+#### 1. 克隆项目
+```bash
+git clone https://github.com/your-org/newshub.git
+cd newshub
+```
+
+#### 2. 安装依赖
 ```bash
 # 安装前端依赖
 npm install
@@ -77,54 +116,86 @@ npm install
 # 安装Go依赖
 cd server
 go mod tidy
+cd ..
 
 # 安装Python依赖
-cd ../crawler-service
+cd crawler-service
+pip install -r requirements.txt
+cd ..
+
+# 或安装根目录的所有Python依赖
 pip install -r requirements.txt
 ```
 
-### 配置数据库
-
+#### 3. 配置数据库
 ```bash
 # Windows
-.\init-database.bat
+.\init-database.ps1
 
 # Linux/Mac
 ./init-database.sh
 
-# PowerShell
-.\init-database.ps1
+# 批处理
+.\init-database.bat
 ```
 
-### 启动服务
-
+#### 4. 启动服务
 ```bash
-# Windows
-.\start.bat
+# 完整启动 (推荐)
+.\start-all.ps1    # Windows PowerShell
+./start.sh         # Linux/Mac
+.\start.bat        # Windows 批处理
 
-# Linux/Mac
-./start.sh
-
-# PowerShell
-.\start.ps1
+# 或单独启动
+.\start.ps1        # Windows PowerShell 简化版
 ```
 
-### 测试爬虫功能
+### 🧪 测试功能
 
+#### 爬虫功能测试
 ```bash
 # 进入爬虫服务目录
 cd crawler-service
 
 # 运行测试脚本
 python test_crawler.py
+python test_crawl4ai.py
+python test_mcp_servers.py
 ```
 
-### 访问应用
+#### 健康检查
+```bash
+# 检查所有服务状态
+curl http://localhost:8081/health  # 后端服务
+curl http://localhost:8001/health  # 爬虫服务
+curl http://localhost:3000         # 前端服务
+```
 
+### 🌐 访问应用
+
+#### 主要服务
+- **前端应用**: http://localhost:3000
+- **后端 API**: http://localhost:8081
+- **爬虫服务**: http://localhost:8001
+- **API 文档**: http://localhost:8001/docs
+
+#### 功能页面
 - **主页**: http://localhost:3000
-- **爬虫管理**: http://localhost:3000/crawler
-- **API文档**: http://localhost:8001/docs
-- **健康检查**: http://localhost:8080/health
+- **内容管理**: http://localhost:3000/content
+- **爬虫控制**: http://localhost:3000/crawler
+- **视频生成**: http://localhost:3000/generate
+- **发布管理**: http://localhost:3000/publish
+- **登录状态**: http://localhost:3000/login-state
+
+#### 存储和数据库
+- **MinIO 控制台**: http://localhost:9001
+- **MongoDB**: mongodb://localhost:27017
+- **MCP 服务器**: http://localhost:8080 (Local), http://localhost:3001 (Browser)
+
+#### 默认凭据
+- **MinIO**: minioadmin / minioadmin123
+- **MongoDB**: 无需认证 (开发环境)
+- **管理员账户**: admin / admin123
 
 ## 📖 使用指南
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { revokeToken } from '@/lib/auth';
+import { revokeToken } from '@/lib/auth-backend';
 
 export async function POST(request: Request) {
   try {
