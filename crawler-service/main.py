@@ -20,6 +20,15 @@ from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from crawl4ai.chunking_strategy import RegexChunking
 from storage import get_storage_client
 
+# MCP集成模块
+from mcp_service import MCPServiceManager, get_mcp_manager, cleanup_mcp_manager
+from mcp_crawl4ai_integration import (
+    MCPCrawl4AIProcessor, 
+    MCPCrawl4AIResult, 
+    get_mcp_crawl4ai_processor, 
+    cleanup_mcp_crawl4ai_processor
+)
+
 # Windows上的asyncio事件循环策略修复
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -31,33 +40,69 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ==================== 配置加载 ====================
+# ==================== Configuration Loading ====================
 
 def load_config():
-    """加载配置文件"""
+    """Load configuration file"""
     config_path = os.path.join(os.path.dirname(__file__), 'config.json')
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
-            logger.info(f"配置文件加载成功: {config_path}")
+            logger.info(f"Configuration file loaded successfully: {config_path}")
             return config
     except FileNotFoundError:
-        logger.warning(f"配置文件未找到: {config_path}，使用默认配置")
+        logger.warning(f"Configuration file not found: {config_path}, using default configuration")
         return {
             "server": {"port": 8001, "host": "0.0.0.0", "reload": False},
             "crawler": {"log_level": "INFO"}
         }
     except json.JSONDecodeError as e:
-        logger.error(f"配置文件格式错误: {e}")
+        logger.error(f"Configuration file format error: {e}")
         return {
             "server": {"port": 8001, "host": "0.0.0.0", "reload": False},
             "crawler": {"log_level": "INFO"}
         }
 
-# 加载配置
-app_config = load_config()
+def load_mcp_config():
+    """Load MCP configuration file"""
+    mcp_config_path = os.path.join(os.path.dirname(__file__), 'mcp_config.json')
+    try:
+        with open(mcp_config_path, 'r', encoding='utf-8') as f:
+            mcp_config = json.load(f)
+            logger.info(f"MCP configuration file loaded successfully: {mcp_config_path}")
+            return mcp_config
+    except FileNotFoundError:
+        logger.warning(f"MCP configuration file not found: {mcp_config_path}, using default configuration")
+        return {
+            "mcp_services": {
+                "enabled": True,
+                "service_priority": ["browser_mcp", "local_mcp"],
+                "fallback_enabled": True
+            },
+            "browser_mcp": {
+                "mcp_endpoint": "http://localhost:3001",
+                "timeout": 45,
+                "max_retries": 3
+            },
+            "local_mcp": {
+                "mcp_endpoint": "http://localhost:8080",
+                "timeout": 20,
+                "max_retries": 2
+            }
+        }
+    except json.JSONDecodeError as e:
+        logger.error(f"MCP configuration file format error: {e}")
+        return {
+            "mcp_services": {
+                "enabled": False
+            }
+        }
 
-# ==================== 数据模型 ====================
+# Load configuration
+app_config = load_config()
+mcp_config = load_mcp_config()
+
+# ==================== Data Models ====================
 
 class CrawlRequest(BaseModel):
     url: str
@@ -88,7 +133,7 @@ class PostData(BaseModel):
     video_url: Optional[str] = None
 
 class PlatformCrawlRequest(BaseModel):
-    creator_url: str  # 可以是URL或搜索关键词
+    creator_url: str  # Can be URL or search keywords
     platform: str
     limit: int = 10
 
@@ -97,10 +142,67 @@ class SearchRequest(BaseModel):
     platform: str
     limit: int = 10
 
-# ==================== 核心爬虫服务 ====================
+# MCP相关数据模型
+class MCPCrawlRequest(BaseModel):
+    url: str
+    use_mcp: bool = True
+    mcp_service: Optional[str] = None  # 'browser_mcp', 'local_mcp', or None (auto select)
+    extract_content: bool = True
+    extract_links: bool = False
+    extract_images: bool = False
+    css_selector: Optional[str] = None
+    word_count_threshold: int = 10
+    platform: Optional[str] = None  # Platform-specific optimization
+    
+class MCPCrawlResponse(BaseModel):
+    url: str
+    title: str
+    content: str
+    cleaned_html: str
+    markdown: str
+    links: List[Dict[str, str]] = []
+    images: List[Dict[str, str]] = []
+    metadata: Dict[str, Any] = {}
+    crawled_at: datetime
+    success: bool
+    error_message: Optional[str] = None
+    processing_time: float = 0.0
+    mcp_service_used: Optional[str] = None
+    
+class MCPBatchCrawlRequest(BaseModel):
+    urls: List[str]
+    use_mcp: bool = True
+    mcp_service: Optional[str] = None
+    extract_content: bool = True
+    extract_links: bool = False
+    extract_images: bool = False
+    max_concurrent: int = 5
+    platform: Optional[str] = None
+    
+class MCPBatchCrawlResponse(BaseModel):
+    results: List[MCPCrawlResponse]
+    total_urls: int
+    successful_count: int
+    failed_count: int
+    total_processing_time: float
+    
+class MCPServiceStatus(BaseModel):
+    available: bool
+    status: str
+    last_used: Optional[datetime] = None
+    response_time: Optional[float] = None
+    error_message: Optional[str] = None
+    
+class MCPSystemStatus(BaseModel):
+    enabled: bool
+    browser_mcp: MCPServiceStatus
+    local_mcp: MCPServiceStatus
+    crawl4ai_integration: bool
+
+# ==================== Core Crawler Service ====================
 
 class UnifiedCrawlerService:
-    """统一爬虫服务，整合所有爬虫功能"""
+    """Unified crawler service that integrates all crawler functionality"""
     
     def __init__(self):
         self.session = None
@@ -108,51 +210,54 @@ class UnifiedCrawlerService:
         self.html_converter = html2text.HTML2Text()
         self.html_converter.ignore_links = False
         self._initialized = False
+        # MCP related
+        self.mcp_processor = None
+        self.mcp_enabled = mcp_config.get('mcp_services', {}).get('enabled', False)
         
     async def ensure_initialized(self):
-        """确保服务已初始化"""
+        """Ensure service is initialized"""
         if not self._initialized:
             await self.initialize()
             self._initialized = True
         
     async def initialize(self):
-        """初始化爬虫服务"""
+        """Initialize crawler service"""
         try:
-            # 初始化传统requests session
+            # Initialize traditional requests session
             self.session = requests.Session()
             self.session.headers.update({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
             
-            # 使用优化的BrowserConfig配置浏览器，启用隐身模式和反机器人检测
+            # Configure browser with optimized BrowserConfig, enable stealth mode and anti-bot detection
             browser_config = BrowserConfig(
                 browser_type="chromium",
-                headless=False,  # 非无头模式更难被检测
-                enable_stealth=True,  # 启用隐身模式
+                headless=False,  # Non-headless mode is harder to detect
+                enable_stealth=True,  # Enable stealth mode
                 viewport_width=1920,
                 viewport_height=1080,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                user_agent_mode="random",  # 随机化用户代理
+                user_agent_mode="random",  # Randomize user agent
                 ignore_https_errors=True,
                 java_script_enabled=True,
-                text_mode=False,  # 保持图片加载以避免检测
+                text_mode=False,  # Keep image loading to avoid detection
                 light_mode=False,
                 verbose=True,
-                # 优化的浏览器参数，提升性能和稳定性
+                # Optimized browser parameters for improved performance and stability
                 extra_args=[
-                    # 基础安全和沙箱设置
+                    # Basic security and sandbox settings
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                     "--disable-web-security",
                     "--disable-features=VizDisplayCompositor",
                     
-                    # 反自动化检测
+                    # Anti-automation detection
                     "--disable-blink-features=AutomationControlled",
                     "--exclude-switches=enable-automation",
                     "--disable-extensions-except=*",
                     "--disable-plugins-discovery",
                     
-                    # 性能优化
+                    # Performance optimization
                     "--no-first-run",
                     "--disable-default-apps",
                     "--disable-infobars",
@@ -168,7 +273,7 @@ class UnifiedCrawlerService:
                     "--disable-preconnect",
                     "--disable-hang-monitor",
                     
-                    # 网络和SSL设置
+                    # Network and SSL settings
                     "--ignore-certificate-errors",
                     "--ignore-ssl-errors",
                     "--ignore-certificate-errors-spki-list",
@@ -176,7 +281,7 @@ class UnifiedCrawlerService:
                     "--allow-running-insecure-content",
                     "--disable-popup-blocking",
                     
-                    # 隐私和跟踪设置
+                    # Privacy and tracking settings
                     "--disable-sync",
                     "--disable-translate",
                     "--metrics-recording-only",
@@ -185,32 +290,32 @@ class UnifiedCrawlerService:
                     "--password-store=basic",
                     "--use-mock-keychain",
                     
-                    # 媒体和音频设置
+                    # Media and audio settings
                     "--mute-audio",
                     "--autoplay-policy=no-user-gesture-required",
                     
-                    # 渲染和显示优化
+                    # Rendering and display optimization
                     "--enable-features=NetworkService,NetworkServiceLogging",
                     "--force-color-profile=srgb",
                     "--disable-features=TranslateUI,BlinkGenPropertyTrees",
                     "--disable-component-extensions-with-background-pages",
                     
-                    # 内存和资源管理
+                    # Memory and resource management
                     "--max_old_space_size=4096",
                     "--memory-pressure-off",
                     "--disable-background-media-suspend",
                     
-                    # 中文网站优化
+                    # Chinese website optimization
                     "--lang=zh-CN",
                     "--accept-lang=zh-CN,zh,en-US,en",
                     "--disable-features=VizDisplayCompositor,AudioServiceOutOfProcess",
                     
-                    # GPU和硬件加速
+                    # GPU and hardware acceleration
                     "--disable-gpu-sandbox",
                     "--enable-gpu-rasterization",
                     "--enable-zero-copy"
                 ],
-                # 优化的请求头，模拟真实浏览器行为
+                # Optimized request headers to simulate real browser behavior
                 headers={
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
                     "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6",
@@ -231,46 +336,59 @@ class UnifiedCrawlerService:
                     "Sec-Ch-Ua-Bitness": '"64"',
                     "Sec-Ch-Ua-Wow64": "?0",
                     "Sec-Ch-Ua-Full-Version-List": '"Chromium";v="120.0.6099.109", "Not_A Brand";v="99.0.0.0", "Google Chrome";v="120.0.6099.109"',
-                    # 中文网站特定头部
+                    # Chinese website specific headers
                     "X-Requested-With": "XMLHttpRequest",
                     "Origin": "https://weibo.com",
                     "Referer": "https://weibo.com/"
                 }
             )
             
-            # 初始化crawl4ai异步爬虫
+            # Initialize crawl4ai async crawler
             self.crawler = AsyncWebCrawler(config=browser_config)
             await self.crawler.start()
             
-            logger.info("统一爬虫服务初始化成功")
+            # Initialize MCP processor (if enabled)
+            if self.mcp_enabled:
+                try:
+                    self.mcp_processor = await get_mcp_crawl4ai_processor(mcp_config)
+                    logger.info("MCP processor initialized successfully")
+                except Exception as e:
+                    logger.error(f"MCP processor initialization failed: {e}")
+                    self.mcp_enabled = False
+            
+            logger.info(f"Unified crawler service initialized successfully (MCP: {'enabled' if self.mcp_enabled else 'disabled'})")
         except Exception as e:
-            logger.error(f"初始化爬虫服务失败: {e}")
+            logger.error(f"Failed to initialize crawler service: {e}")
             raise
 
     async def cleanup(self):
-        """清理资源"""
+        """Clean up resources"""
         try:
             if self.session:
                 self.session.close()
             if self.crawler:
                 await self.crawler.close()
-            logger.info("统一爬虫服务清理完成")
+            # Clean up MCP processor
+            if self.mcp_processor:
+                await cleanup_mcp_crawl4ai_processor()
+                await cleanup_mcp_manager()
+            logger.info("Unified crawler service cleanup completed")
         except Exception as e:
-            logger.error(f"清理过程中出错: {e}")
+            logger.error(f"Error during cleanup: {e}")
 
     def extract_content(self, soup: BeautifulSoup, css_selector: Optional[str] = None) -> str:
-        """提取页面内容"""
+        """Extract page content"""
         if css_selector:
             content_elements = soup.select(css_selector)
             if content_elements:
                 return ' '.join([elem.get_text(strip=True) for elem in content_elements])
         
-        # 默认提取策略
-        # 移除脚本和样式
+        # Default extraction strategy
+        # Remove scripts and styles
         for script in soup(["script", "style", "nav", "header", "footer", "aside"]):
             script.decompose()
         
-        # 寻找主要内容区域
+        # Find main content area
         main_selectors = [
             'main', 'article', '.content', '.post-content', 
             '.article-content', '.news-content', '#content',
@@ -282,23 +400,86 @@ class UnifiedCrawlerService:
             if content_elem:
                 return content_elem.get_text(strip=True)
         
-        # 如果没有找到主要内容区域，返回body内容
+        # If no main content area is found, return body content
         body = soup.find('body')
         if body:
             return body.get_text(strip=True)
         
         return soup.get_text(strip=True)
 
+    async def crawl_with_mcp(self, url: str, platform: Optional[str] = None) -> MCPCrawl4AIResult:
+        """Use MCP service to get web content and extract information through crawl4ai"""
+        if not self.mcp_enabled or not self.mcp_processor:
+            raise ValueError("MCP service not enabled or not initialized")
+        
+        try:
+            result = await self.mcp_processor.process_url(url, platform=platform)
+            return result
+        except Exception as e:
+            logger.error(f"MCP crawling failed {url}: {e}")
+            raise
+    
+    async def crawl_batch_with_mcp(self, urls: List[str], platform: Optional[str] = None) -> List[MCPCrawl4AIResult]:
+        """Use MCP service to batch get web content and extract information"""
+        if not self.mcp_enabled or not self.mcp_processor:
+            raise ValueError("MCP service not enabled or not initialized")
+        
+        try:
+            results = await self.mcp_processor.process_multiple_urls(urls, platform=platform)
+            return results
+        except Exception as e:
+            logger.error(f"MCP batch crawling failed: {e}")
+            raise
+    
+    async def get_mcp_service_status(self) -> MCPSystemStatus:
+        """Get MCP service status"""
+        if not self.mcp_enabled or not self.mcp_processor:
+            return MCPSystemStatus(
+                enabled=False,
+                browser_mcp=MCPServiceStatus(available=False, status="disabled", last_used=None),
+                local_mcp=MCPServiceStatus(available=False, status="disabled", last_used=None),
+                crawl4ai_integration=False
+            )
+        
+        try:
+            # Get MCP manager status
+            mcp_manager = await get_mcp_manager()
+            browser_status = await mcp_manager.get_service_status('browser')
+            local_status = await mcp_manager.get_service_status('local')
+            
+            return MCPSystemStatus(
+                enabled=True,
+                browser_mcp=MCPServiceStatus(
+                    available=browser_status.get('available', False),
+                    status=browser_status.get('status', 'unknown'),
+                    last_used=browser_status.get('last_used')
+                ),
+                local_mcp=MCPServiceStatus(
+                    available=local_status.get('available', False),
+                    status=local_status.get('status', 'unknown'),
+                    last_used=local_status.get('last_used')
+                ),
+                crawl4ai_integration=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to get MCP service status: {e}")
+            return MCPSystemStatus(
+                enabled=True,
+                browser_mcp=MCPServiceStatus(available=False, status="error", last_used=None),
+                local_mcp=MCPServiceStatus(available=False, status="error", last_used=None),
+                crawl4ai_integration=False
+            )
+
     async def crawl_platform_direct(self, creator_url: str, platform: str, limit: int = 10) -> List[PostData]:
-        """直接使用crawl4ai爬取平台内容"""
+        """Directly use crawl4ai to crawl platform content"""
         results = []
         
-        # 生成目标URL列表
+        # Generate target URL list
         target_urls = self._generate_platform_urls(creator_url, platform)
         
-        for url in target_urls[:3]:  # 限制URL数量
+        for url in target_urls[:3]:  # Limit URL count
             try:
-                logger.info(f"开始爬取URL: {url}")
+                logger.info(f"Starting to crawl URL: {url}")
                 post_data = await self._extract_with_crawl4ai(url, platform)
                 if post_data:
                     results.extend(post_data)
@@ -307,115 +488,115 @@ class UnifiedCrawlerService:
                     break
                     
             except Exception as e:
-                logger.error(f"爬取URL失败 {url}: {e}")
+                logger.error(f"Failed to crawl URL {url}: {e}")
                 continue
         
-        # 去重和质量过滤
+        # Deduplication and quality filtering
         filtered_results = self._filter_and_deduplicate(results, creator_url)
         
         return filtered_results[:limit]
 
     def _generate_platform_urls(self, creator_url: str, platform: str) -> List[str]:
-        """根据平台和创作者信息生成动态内容URL列表，直接访问平台页面而不是搜索引擎"""
+        """Generate dynamic content URL list based on platform and creator info, directly access platform pages instead of search engines"""
         import re
         urls = []
         
         if creator_url.startswith('http'):
-            # 如果已经是URL，检查是否为动态内容页面
+            # If already a URL, check if it's a dynamic content page
             if self._is_dynamic_content_url(creator_url):
                 urls.append(creator_url)
         else:
-            # 根据平台生成直接的动态内容URL
+            # Generate direct dynamic content URLs based on platform
             if platform == 'weibo':
-                # 微博动态内容：直接访问微博用户的动态页面，而不是静态主页
-                if creator_url.isdigit():  # 如果是用户ID
+                # Weibo dynamic content: directly access user's dynamic page instead of static homepage
+                if creator_url.isdigit():  # If it's a user ID
                     urls.extend([
-                        f"https://weibo.com/u/{creator_url}/home",        # 用户动态页面
-                        f"https://weibo.com/u/{creator_url}?tabtype=feed", # 用户微博动态
-                        f"https://weibo.com/{creator_url}?is_all=1"       # 全部微博
+                        f"https://weibo.com/u/{creator_url}/home",        # User dynamic page
+                        f"https://weibo.com/u/{creator_url}?tabtype=feed", # User weibo dynamics
+                        f"https://weibo.com/{creator_url}?is_all=1"       # All weibo posts
                     ])
-                else:  # 如果是用户名或昵称
-                    # 对于非数字的用户标识符，需要更谨慎的处理
+                else:  # If it's a username or nickname
+                    # For non-numeric user identifiers, more careful handling is needed
                     validated_urls = self._validate_weibo_user_identifier(creator_url)
                     if validated_urls:
                         urls.extend(validated_urls)
                     else:
-                        # 如果用户标识符无效，尝试生成通用的用户页面URL
-                        logger.warning(f"微博用户标识符验证失败: {creator_url}，尝试生成通用用户页面")
-                        # 清理用户标识符，移除特殊字符
+                        # If user identifier is invalid, try to generate generic user page URLs
+                        logger.warning(f"Weibo user identifier validation failed: {creator_url}, trying to generate generic user page")
+                        # Clean user identifier, remove special characters
                         cleaned_identifier = re.sub(r'[^a-zA-Z0-9_\u4e00-\u9fff-]', '', creator_url)
                         if cleaned_identifier:
                             urls.extend([
-                                f"https://weibo.com/{cleaned_identifier}?tabtype=feed",  # 用户微博动态
-                                f"https://weibo.com/n/{cleaned_identifier}",  # 昵称格式
-                                f"https://weibo.com/{cleaned_identifier}"  # 基本用户页面
+                                f"https://weibo.com/{cleaned_identifier}?tabtype=feed",  # User weibo dynamics
+                                f"https://weibo.com/n/{cleaned_identifier}",  # Nickname format
+                                f"https://weibo.com/{cleaned_identifier}"  # Basic user page
                             ])
                         else:
-                            # 如果完全无法处理，跳过该创作者
-                            logger.error(f"无法处理的微博用户标识符: {creator_url}，跳过爬取")
+                            # If completely unable to handle, skip this creator
+                            logger.error(f"Unable to handle weibo user identifier: {creator_url}, skipping crawl")
                             return []
             elif platform == 'bilibili':
-                # B站动态内容：直接访问B站用户空间和动态页面
-                if creator_url.isdigit():  # 如果是用户UID
+                # Bilibili dynamic content: directly access Bilibili user space and dynamic pages
+                if creator_url.isdigit():  # If it's a user UID
                     urls.extend([
                         f"https://space.bilibili.com/{creator_url}/dynamic",
                         f"https://space.bilibili.com/{creator_url}/video",
                         f"https://space.bilibili.com/{creator_url}"
                     ])
-                else:  # 如果是用户名或其他标识
+                else:  # If it's a username or other identifier
                     urls.extend([
-                        "https://www.bilibili.com/v/popular/all",  # 热门视频
-                        "https://t.bilibili.com",  # 动态页面
-                        "https://www.bilibili.com/v/popular/weekly"  # 每周必看
+                        "https://www.bilibili.com/v/popular/all",  # Popular videos
+                        "https://t.bilibili.com",  # Dynamic page
+                        "https://www.bilibili.com/v/popular/weekly"  # Weekly must-watch
                     ])
             elif platform == 'xiaohongshu':
-                # 小红书动态内容：直接访问小红书用户页面和发现页
+                # Xiaohongshu dynamic content: directly access Xiaohongshu user pages and discover page
                 if creator_url.startswith('xiaohongshu.com') or creator_url.startswith('xhslink.com'):
                     urls.append(creator_url)
                 else:
                     urls.extend([
-                        "https://www.xiaohongshu.com/explore",  # 发现页面
-                        "https://www.xiaohongshu.com/explore/homefeed.json",  # 首页动态
+                        "https://www.xiaohongshu.com/explore",  # Discover page
+                        "https://www.xiaohongshu.com/explore/homefeed.json",  # Homepage dynamics
                         f"https://www.xiaohongshu.com/user/profile/{creator_url}" if creator_url else "https://www.xiaohongshu.com/explore"
                     ])
             elif platform == 'douyin':
-                # 抖音动态内容：直接访问抖音用户页面和推荐页
+                # Douyin dynamic content: directly access Douyin user pages and recommendation page
                 if creator_url.startswith('@'):
-                    username = creator_url[1:]  # 移除@符号
+                    username = creator_url[1:]  # Remove @ symbol
                     urls.extend([
                         f"https://www.douyin.com/@{username}",
                         f"https://www.douyin.com/user/{username}"
                     ])
                 else:
                     urls.extend([
-                        "https://www.douyin.com/recommend",  # 推荐页面
-                        "https://www.douyin.com/hot",  # 热门内容
+                        "https://www.douyin.com/recommend",  # Recommendation page
+                        "https://www.douyin.com/hot",  # Hot content
                         f"https://www.douyin.com/search/{creator_url}" if creator_url else "https://www.douyin.com/recommend"
                     ])
             else:
-                # 默认情况：如果是URL直接使用，否则生成通用的动态内容页面
+                # Default case: if it's a URL use directly, otherwise generate generic dynamic content pages
                 if creator_url.startswith('http'):
                     urls.append(creator_url)
                 else:
-                    # 生成一些通用的内容发现页面
+                    # Generate some generic content discovery pages
                     urls.extend([
-                        "https://www.zhihu.com/hot",  # 知乎热榜
-                        "https://weibo.com/hot/search",  # 微博热搜
-                        "https://www.bilibili.com/v/popular/all"  # B站热门
+                        "https://www.zhihu.com/hot",  # Zhihu hot list
+                        "https://weibo.com/hot/search",  # Weibo hot search
+                        "https://www.bilibili.com/v/popular/all"  # Bilibili popular
                     ])
         
-        # 过滤掉无效的URL
+        # Filter out invalid URLs
         valid_urls = []
         for url in urls:
             if self._is_valid_url(url):
                 valid_urls.append(url)
             else:
-                logger.warning(f"跳过无效URL: {url}")
+                logger.warning(f"Skipping invalid URL: {url}")
         
         return valid_urls
 
     async def _check_page_stability(self, url: str, timeout: int = 15) -> bool:
-        """检查页面是否稳定，避免在导航过程中获取内容，增强错误处理"""
+        """Check if page is stable, avoid getting content during navigation, enhanced error handling"""
         try:
             import asyncio
             from playwright.async_api import async_playwright
@@ -442,27 +623,27 @@ class UnifiedCrawlerService:
                 page = await context.new_page()
                 
                 try:
-                    # 设置更长的超时时间
+                    # Set longer timeout
                     page.set_default_timeout(timeout * 1000)
                     page.set_default_navigation_timeout(timeout * 1000)
                     
-                    # 分阶段导航到页面
-                    logger.debug(f"开始导航到页面: {url}")
+                    # Navigate to page in stages
+                    logger.debug(f"Starting navigation to page: {url}")
                     await page.goto(url, wait_until='networkidle', timeout=timeout * 1000)
                     
-                    # 等待页面基本加载完成
+                    # Wait for basic page loading to complete
                     await asyncio.sleep(3)
                     
-                    # 多重稳定性检查
+                    # Multiple stability checks
                     stable_checks = 0
                     max_checks = 8
                     
                     for check_round in range(max_checks):
                         try:
-                            # 检查文档状态
+                            # Check document state
                             ready_state = await page.evaluate('document.readyState')
                             
-                            # 检查是否还有正在加载的资源
+                            # Check if there are still loading resources
                             loading_resources = await page.evaluate('''
                                 () => {
                                     const images = document.querySelectorAll('img');
@@ -477,81 +658,133 @@ class UnifiedCrawlerService:
                                 }
                             ''')
                             
-                            # 检查页面内容是否稳定
+                            # Check if page content is stable
                             content_length = await page.evaluate('document.body ? document.body.innerText.length : 0')
                             
                             if ready_state == 'complete' and loading_resources == 0 and content_length > 0:
                                 stable_checks += 1
-                                logger.debug(f"稳定性检查 {check_round + 1}/{max_checks}: 通过 (连续{stable_checks}次)")
+                                logger.debug(f"Stability check {check_round + 1}/{max_checks}: passed (consecutive {stable_checks} times)")
                             else:
                                 stable_checks = 0
-                                logger.debug(f"稳定性检查 {check_round + 1}/{max_checks}: 未通过 (状态:{ready_state}, 加载中:{loading_resources}, 内容长度:{content_length})")
+                                logger.debug(f"Stability check {check_round + 1}/{max_checks}: failed (state:{ready_state}, loading:{loading_resources}, content length:{content_length})")
                             
-                            # 连续3次稳定检查通过
+                            # 3 consecutive stability checks passed
                             if stable_checks >= 3:
-                                logger.info(f"页面稳定性检查通过: {url}")
+                                logger.info(f"Page stability check passed: {url}")
                                 return True
                             
-                            await asyncio.sleep(2)  # 增加检查间隔
+                            await asyncio.sleep(2)  # Increase check interval
                             
                         except Exception as eval_error:
-                            logger.warning(f"稳定性检查执行异常: {eval_error}")
+                            logger.warning(f"Stability check execution exception: {eval_error}")
                             stable_checks = 0
                             await asyncio.sleep(1)
                     
-                    logger.warning(f"页面稳定性检查超时: {url} (检查了{max_checks}轮)")
+                    logger.warning(f"Page stability check timeout: {url} (checked {max_checks} rounds)")
                     return False
                     
                 except Exception as e:
                     error_msg = str(e)
                     if "timeout" in error_msg.lower() or "navigation" in error_msg.lower():
-                        logger.warning(f"页面导航超时，可能页面正在加载: {url} - {error_msg}")
+                        logger.warning(f"Page navigation timeout, page may be loading: {url} - {error_msg}")
                         return False
                     else:
-                        logger.warning(f"页面稳定性检查异常: {url} - {error_msg}")
+                        logger.warning(f"Page stability check exception: {url} - {error_msg}")
                         return False
                 finally:
                     try:
                         await browser.close()
                     except Exception:
-                        pass  # 忽略关闭浏览器时的异常
+                        pass  # Ignore exceptions when closing browser
                     
         except Exception as e:
-            logger.error(f"页面稳定性检查工具初始化失败: {str(e)}")
-            return False  # 改为返回False，更加保守
+            logger.error(f"Page stability check tool initialization failed: {str(e)}")
+            return False  # Changed to return False, more conservative
+    
+    def _is_image_url(self, url: str) -> bool:
+        """Check if URL is an image URL to avoid text_body error in crawl4ai"""
+        if not url:
+            return False
+        
+        url_lower = url.lower()
+        
+        # Common image file extensions
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff', '.tif']
+        
+        # Check if URL ends with image extension
+        for ext in image_extensions:
+            if url_lower.endswith(ext):
+                return True
+        
+        # Check for image URLs with query parameters
+        if any(ext in url_lower for ext in image_extensions):
+            return True
+        
+        # Check for common image hosting domains and patterns
+        image_patterns = [
+            'sinaimg.cn',
+            'qpic.cn', 
+            'hdslb.com',
+            'xiaohongshu.com/sns/img',
+            'wx1.sinaimg.cn',
+            'wx2.sinaimg.cn', 
+            'wx3.sinaimg.cn',
+            'wx4.sinaimg.cn',
+            '/orj360/',  # Sina image path pattern
+            '/bmiddle/',  # Sina image path pattern
+            '/large/',   # Sina image path pattern
+            '/thumb/',   # Common thumbnail pattern
+            'img.', 
+            'image.',
+            'pic.',
+            'photo.'
+        ]
+        
+        for pattern in image_patterns:
+            if pattern in url_lower:
+                return True
+        
+        # Additional check for URLs that look like images based on path structure
+        import re
+        # Pattern for URLs that contain image-like paths
+        image_path_pattern = r'/(img|image|pic|photo|thumb|avatar|logo)s?/'
+        if re.search(image_path_pattern, url_lower):
+            return True
+        
+        return False
 
     async def _extract_with_crawl4ai(self, url: str, platform: str, max_retries: int = 3) -> List[PostData]:
-        """使用crawl4ai提取内容，带重试机制和增强的错误处理"""
+        """Use crawl4ai to extract content, with retry mechanism and enhanced error handling"""
         import asyncio
         import time
         
-        # 确保服务已初始化
+        # Ensure service is initialized
         await self.ensure_initialized()
         
         start_time = time.time()
-        logger.info(f"开始crawl4ai爬取任务 - 平台: {platform}, URL: {url}")
+        logger.info(f"Starting crawl4ai crawling task - Platform: {platform}, URL: {url}")
         
         for attempt in range(max_retries):
             try:
                 attempt_start = time.time()
-                logger.info(f"crawl4ai爬取尝试 {attempt + 1}/{max_retries}: `{url}`")
+                logger.info(f"crawl4ai crawling attempt {attempt + 1}/{max_retries}: `{url}`")
                 
-                # 对于微博平台，先进行页面稳定性检查
+                # For Weibo platform, perform page stability check first
                 if platform == 'weibo' and attempt == 0:
-                    logger.info(f"微博页面稳定性检查: {url}")
+                    logger.info(f"Weibo page stability check: {url}")
                     is_stable = await self._check_page_stability(url, timeout=15)
                     if not is_stable:
-                        logger.warning(f"页面不稳定，等待额外时间: {url}")
-                        await asyncio.sleep(10)  # 额外等待时间
+                        logger.warning(f"Page unstable, waiting additional time: {url}")
+                        await asyncio.sleep(10)  # Additional wait time
                 
-                # 获取平台特定配置
+                # Get platform-specific configuration
                 crawl_config = self._get_platform_crawl_config(platform)
-                logger.debug(f"使用平台配置 {platform}: {crawl_config}")
+                logger.debug(f"Using platform configuration {platform}: {crawl_config}")
                 
-                # 获取虚拟滚动配置 <mcreference link="https://docs.crawl4ai.com/api/parameters/" index="4">4</mcreference>
+                # Get virtual scroll configuration
                 virtual_scroll_config = self._get_virtual_scroll_config(platform, url)
                 if virtual_scroll_config:
-                    logger.info(f"启用虚拟滚动配置: {virtual_scroll_config}")
+                    logger.info(f"Enabling virtual scroll configuration: {virtual_scroll_config}")
                 
                 # 使用新的CrawlerRunConfig配置爬取操作
                 crawler_run_config_params = {
@@ -559,9 +792,7 @@ class UnifiedCrawlerService:
                     'word_count_threshold': 10,
                     'wait_for': "networkidle",  # 等待网络空闲
                     'delay_before_return_html': 3.0,  # 返回HTML前等待3秒
-                    'timeout': 60000,  # 60秒超时
                     'page_timeout': 90000,  # 页面超时90秒
-                    'navigation_timeout': 45000,  # 导航超时45秒
                     'screenshot': False,  # 暂时禁用截图以提高性能
                     'process_iframes': True,
                     'remove_overlay_elements': True,
@@ -571,7 +802,8 @@ class UnifiedCrawlerService:
                     'wait_for_images': True,  # 等待图片加载完成
                     'scroll_delay': 1.0,  # 滚动间隔延迟
                     # 启用网络请求监控和控制台消息捕获
-                    'capture_network_requests': True,  # 捕获所有网络请求
+                    # Temporarily disable network request capture for image URLs to avoid text_body error
+                    'capture_network_requests': not self._is_image_url(url),  # 对图片URL禁用网络请求捕获
                     'capture_console_messages': True  # 捕获控制台消息
                 }
                 
@@ -632,12 +864,33 @@ class UnifiedCrawlerService:
                 except Exception as crawl_error:
                     error_msg = str(crawl_error)
                     
-                    # 增强的错误分类和检测机制
-                    error_classification = self._classify_crawl_error(error_msg, url, platform)
-                    logger.info(f"错误分类结果: {error_classification}")
-                    
-                    # 获取智能重试配置
-                    retry_config = self._get_retry_config(error_classification, attempt, platform)
+                    # 特殊处理text_body错误 - 这通常发生在图片URL的网络请求捕获中
+                    if "cannot access local variable 'text_body'" in error_msg:
+                        logger.warning(f"检测到text_body错误，可能是图片URL: {url}")
+                        logger.info(f"禁用网络请求捕获并重试: {url}")
+                        
+                        # 创建一个禁用网络请求捕获的配置
+                        safe_config_params = crawler_run_config_params.copy()
+                        safe_config_params['capture_network_requests'] = False
+                        safe_config_params['capture_console_messages'] = False
+                        safe_crawler_config = CrawlerRunConfig(**safe_config_params)
+                        
+                        try:
+                            result = await self.crawler.arun(
+                                url=url,
+                                config=safe_crawler_config
+                            )
+                            logger.info(f"text_body错误修复成功: {url}")
+                        except Exception as safe_retry_error:
+                            logger.error(f"text_body错误修复失败: {url} - {safe_retry_error}")
+                            raise crawl_error  # 抛出原始错误
+                    else:
+                        # 增强的错误分类和检测机制
+                        error_classification = self._classify_crawl_error(error_msg, url, platform)
+                        logger.info(f"错误分类结果: {error_classification}")
+                        
+                        # 获取智能重试配置
+                        retry_config = self._get_retry_config(error_classification, attempt, platform)
                     
                     if retry_config and attempt < max_retries:
                         logger.warning(f"检测到{error_classification['type']}错误，使用{error_classification['recovery_strategy']}策略重试")
@@ -879,9 +1132,7 @@ class UnifiedCrawlerService:
                 cache_mode=CacheMode.BYPASS,
                 word_count_threshold=2,
                 wait_for='domcontentloaded',
-                timeout=90000 + (attempt * 30000),
                 page_timeout=120000 + (attempt * 60000),
-                navigation_timeout=60000 + (attempt * 30000),
                 delay_before_return_html=10 + (attempt * 5),
                 js_code=f"await new Promise(resolve => setTimeout(resolve, {5000 + attempt * 2000}));"
             )
@@ -891,9 +1142,7 @@ class UnifiedCrawlerService:
                 cache_mode=CacheMode.BYPASS,
                 word_count_threshold=1,
                 wait_for='commit' if attempt > 1 else 'networkidle',
-                timeout=120000 + (attempt * 60000),
                 page_timeout=180000 + (attempt * 90000),
-                navigation_timeout=90000 + (attempt * 45000),
                 delay_before_return_html=20 + (attempt * 10),
                 js_code=f"await new Promise(resolve => setTimeout(resolve, {10000 + attempt * 5000}));"
             )
@@ -905,9 +1154,7 @@ class UnifiedCrawlerService:
                 cache_mode=CacheMode.BYPASS,
                 word_count_threshold=1,
                 wait_for='networkidle',
-                timeout=150000,
                 page_timeout=240000,
-                navigation_timeout=120000,
                 delay_before_return_html=25 + (attempt * 15),
                 simulate_user=True,
                 override_navigator=True,
@@ -933,9 +1180,7 @@ class UnifiedCrawlerService:
                 cache_mode=CacheMode.BYPASS,
                 word_count_threshold=2,
                 wait_for='domcontentloaded',
-                timeout=60000,
                 page_timeout=90000,
-                navigation_timeout=45000,
                 delay_before_return_html=5,
                 process_iframes=False,
                 js_code="await new Promise(resolve => setTimeout(resolve, 3000));"
@@ -946,9 +1191,7 @@ class UnifiedCrawlerService:
                 cache_mode=CacheMode.BYPASS,
                 word_count_threshold=1,
                 wait_for='networkidle',
-                timeout=90000,
                 page_timeout=120000,
-                navigation_timeout=60000,
                 delay_before_return_html=15,
                 js_code=[
                     "console.log('认证错误重试模式');",
@@ -965,9 +1208,7 @@ class UnifiedCrawlerService:
                 cache_mode=CacheMode.BYPASS,
                 word_count_threshold=1,
                 wait_for='domcontentloaded',
-                timeout=45000,
                 page_timeout=60000,
-                navigation_timeout=30000,
                 delay_before_return_html=3,
                 js_code="await new Promise(resolve => setTimeout(resolve, 2000));"
             )
@@ -979,9 +1220,7 @@ class UnifiedCrawlerService:
                     cache_mode=CacheMode.BYPASS,
                     word_count_threshold=3,
                     wait_for='domcontentloaded',
-                    timeout=60000,
                     page_timeout=90000,
-                    navigation_timeout=45000,
                     delay_before_return_html=5,
                     js_code="await new Promise(resolve => setTimeout(resolve, 5000));"
                 )
@@ -990,9 +1229,7 @@ class UnifiedCrawlerService:
                     cache_mode=CacheMode.BYPASS,
                     word_count_threshold=2,
                     wait_for='networkidle',
-                    timeout=120000,
                     page_timeout=180000,
-                    navigation_timeout=90000,
                     delay_before_return_html=20,
                     simulate_user=True,
                     js_code=[
@@ -1007,19 +1244,16 @@ class UnifiedCrawlerService:
                     word_count_threshold=1,
                     bypass_cache=True,
                     wait_for='commit',
-                    timeout=180000,
                     page_timeout=240000,
-                    navigation_timeout=120000,
                     delay_before_return_html=30,
                     js_code="await new Promise(resolve => setTimeout(resolve, 15000));"
                 )
         
         # 平台特定的配置调整
-         if platform in ['weibo', 'xiaohongshu', 'douyin', 'bilibili']:
-             # 中文平台需要更长的等待时间
-             config.timeout = int(config.timeout * 1.5)
-             config.page_timeout = int(config.page_timeout * 1.5)
-             config.delay_before_return_html = config.delay_before_return_html * 1.2
+        if platform in ['weibo', 'xiaohongshu', 'douyin', 'bilibili']:
+            # 中文平台需要更长的等待时间
+            config.page_timeout = int(config.page_timeout * 1.5)
+            config.delay_before_return_html = config.delay_before_return_html * 1.2
         
         return {
             'config': config,
@@ -1150,10 +1384,8 @@ class UnifiedCrawlerService:
         configs = {
             'weibo': {
                 'wait_for': 'networkidle',
-                'timeout': 90000,  # 增加到90秒
                 'delay_before_return_html': 15,  # 增加到15秒确保页面完全稳定
                 'page_timeout': 120000,  # 页面加载超时增加到120秒
-                'navigation_timeout': 60000,  # 导航超时增加到60秒
                 'headers': chinese_platform_optimizations['weibo']['extra_headers'],
                 'anti_detection': True,
                 'random_delay': True,
@@ -1200,19 +1432,17 @@ class UnifiedCrawlerService:
                     "await new Promise(resolve => setTimeout(resolve, 3000));",
                     "console.log('微博页面处理完成');"
                 ],
-                'css_selector': '.WB_detail, .WB_feed_detail, .WB_cardwrap, article, .card-wrap',
+                'css_selector': '.WB_detail .WB_text, .WB_feed_detail .WB_text, .WB_cardwrap .WB_text, article .WB_text, .card-wrap .WB_text, .WB_text, .weibo-text, .content, [class*="text"][class*="content"]',
                 'remove_overlay_elements': True,
                 'simulate_user': True,
                 'override_navigator': True,
-                'wait_for_selector': '.WB_detail, .WB_feed_detail, .WB_cardwrap',
+                'wait_for_selector': '.WB_text, .WB_detail, .WB_feed_detail',
                 'wait_for_selector_timeout': 45000  # 增加到45秒
             },
             'bilibili': {
                 'wait_for': 'networkidle',
-                'timeout': 60000,  # 增加超时时间
                 'delay_before_return_html': 8,  # 增加延迟确保内容加载
                 'page_timeout': 90000,
-                'navigation_timeout': 45000,
                 'headers': chinese_platform_optimizations['bilibili']['extra_headers'],
                 'anti_detection': True,
                 'random_delay': True,
@@ -1245,7 +1475,7 @@ class UnifiedCrawlerService:
                     "await new Promise(resolve => setTimeout(resolve, 2000));",
                     "console.log('B站页面处理完成');"
                 ],
-                'css_selector': '.video-info-title, .video-title, .video-desc, .up-info, .video-info, .video-info-container',
+                'css_selector': '.video-info-title, .video-title, .video-desc .desc-info, .up-info .up-name, .video-info .info-text, .video-info-container .info-content, .video-desc-container, .video-info-detail',
                 'remove_overlay_elements': True,
                 'simulate_user': True,
                 'override_navigator': True,
@@ -1254,10 +1484,8 @@ class UnifiedCrawlerService:
             },
             'xiaohongshu': {
                 'wait_for': 'networkidle',
-                'timeout': 50000,  # 增加超时时间
                 'delay_before_return_html': 6,  # 增加延迟
                 'page_timeout': 75000,
-                'navigation_timeout': 40000,
                 'headers': chinese_platform_optimizations['xiaohongshu']['extra_headers'],
                 'anti_detection': True,
                 'random_delay': True,
@@ -1290,7 +1518,7 @@ class UnifiedCrawlerService:
                     "await new Promise(resolve => setTimeout(resolve, 1500));",
                     "console.log('小红书页面处理完成');"
                 ],
-                'css_selector': '.note-item, .note-detail, .content, .title, .note-content, .note-scroller',
+                'css_selector': '.note-item .note-text, .note-detail .note-content, .content .desc, .title, .note-content .text, .note-scroller .note-item, [class*="note"][class*="text"], [class*="content"][class*="desc"]',
                 'remove_overlay_elements': True,
                 'simulate_user': True,
                 'override_navigator': True,
@@ -1299,10 +1527,8 @@ class UnifiedCrawlerService:
             },
             'douyin': {
                 'wait_for': 'networkidle',
-                'timeout': 55000,  # 增加超时时间
                 'delay_before_return_html': 7,  # 增加延迟
                 'page_timeout': 80000,
-                'navigation_timeout': 45000,
                 'headers': chinese_platform_optimizations['douyin']['extra_headers'],
                 'anti_detection': True,
                 'random_delay': True,
@@ -1337,7 +1563,7 @@ class UnifiedCrawlerService:
                     "await new Promise(resolve => setTimeout(resolve, 2000));",
                     "console.log('抖音页面处理完成');"
                 ],
-                'css_selector': '.video-info, .video-desc, .author-info, .video-title, .video-container',
+                'css_selector': '.video-info .info-text, .video-desc .desc-content, .author-info .author-name, .video-title, .video-container .video-content, [class*="video"][class*="desc"], [class*="info"][class*="text"]',
                 'remove_overlay_elements': True,
                 'simulate_user': True,
                 'override_navigator': True,
@@ -1346,7 +1572,6 @@ class UnifiedCrawlerService:
             },
             'default': {
                 'wait_for': 'domcontentloaded',
-                'timeout': 30000,
                 'delay_before_return_html': 2,
                 'simulate_user': True,
                 'override_navigator': True
@@ -1432,8 +1657,6 @@ class UnifiedCrawlerService:
             enhanced_config['timeout'] = int(enhanced_config['timeout'] * timeout_multiplier)
         if 'page_timeout' in enhanced_config:
             enhanced_config['page_timeout'] = int(enhanced_config['page_timeout'] * timeout_multiplier)
-        if 'navigation_timeout' in enhanced_config:
-            enhanced_config['navigation_timeout'] = int(enhanced_config['navigation_timeout'] * timeout_multiplier)
         
         return enhanced_config
 
@@ -1643,91 +1866,218 @@ class UnifiedCrawlerService:
         return suggestions
 
     def _parse_crawl4ai_result(self, result, url: str, platform: str) -> List[PostData]:
-        """解析crawl4ai的结果，专注于动态内容提取"""
+        """解析crawl4ai的结果，专注于动态内容提取 - 优化版本"""
         posts = []
         
         try:
-            # 基本内容提取
-            title = result.metadata.get('title', '未知标题') if result.metadata else '未知标题'
-            title = title or '未知标题'  # 确保标题不为None
-            content = result.cleaned_html or result.markdown or result.html or ''
+            # 智能内容提取策略
+            title = self._extract_smart_title(result, url, platform)
+            content = self._extract_smart_content(result, url, platform)
             
-            # 如果内容太短，尝试使用其他字段
-            if len(content) < 100:
-                content = str(result.html)[:2000] if result.html else '无内容'
+            # 早期质量检查
+            if not self._is_content_worth_processing(title, content, url, platform):
+                logger.info(f"内容质量不符合要求，跳过: {title[:50]}")
+                return posts
             
             # 专门的错误检测和处理
             error_result = self._detect_and_handle_errors(title, content, url, platform)
             if error_result:
                 logger.error(f"检测到页面错误: {error_result['error_type']} - {error_result['message']}")
-                logger.error(f"建议: {error_result['suggestion']}")
-                return posts  # 返回空列表
-            
-            # 详细的调试日志
-            logger.info(f"=== 内容解析调试信息 ===")
-            logger.info(f"实际访问URL: {url}")
-            logger.info(f"平台: {platform}")
-            logger.info(f"页面标题: {title}")
-            logger.info(f"内容长度: {len(content)} 字符")
-            logger.info(f"内容预览: {content[:200]}...")
-            
-            # 检查URL类型
-            url_type = self._analyze_url_type(url)
-            logger.info(f"URL类型分析: {url_type}")
-            
-            # 检查内容类型
-            content_type = self._analyze_content_type(title, content, url)
-            logger.info(f"内容类型分析: {content_type}")
-            
-            logger.info(f"解析内容 - 标题: {title[:50]}, 内容长度: {len(content)}, URL: {url}")
-            
-            # B站特殊处理
-            if platform == 'bilibili':
-                # B站特殊内容提取逻辑
-                bilibili_posts = self._parse_bilibili_content(result, url, title, content)
-                if bilibili_posts:
-                    posts.extend(bilibili_posts)
-                    logger.info(f"B站特殊解析成功，获取 {len(bilibili_posts)} 条内容")
-                    return posts
-                else:
-                    logger.warning(f"B站特殊解析失败，尝试通用解析: {title[:50]}")
-            
-            # 验证是否为有效的动态内容
-            is_valid = self._is_valid_dynamic_content(title, content, url)
-            logger.info(f"动态内容验证结果: {is_valid}")
-            
-            if not is_valid:
-                logger.warning(f"跳过非动态内容: {title[:50]}")
-                logger.warning(f"跳过原因: 内容被识别为静态页面或首页")
                 return posts
             
-            # 清理和优化内容
-            cleaned_content = self._clean_dynamic_content(content, platform)
+            # 平台特定解析
+            platform_posts = self._parse_platform_specific_content(result, url, platform, title, content)
+            if platform_posts:
+                posts.extend(platform_posts)
+                logger.info(f"{platform}平台特定解析成功，获取 {len(platform_posts)} 条内容")
+                return posts
             
-            # 提取作者信息
-            author = self._extract_author_from_platform(platform, url)
-            
-            # 创建PostData对象
-            post_data = PostData(
-                title=self._clean_title(title),
-                content=cleaned_content[:2000],  # 限制内容长度
-                author=author,
-                platform=platform,
-                url=url,
-                published_at=datetime.now(),
-                tags=self._extract_tags(cleaned_content),
-                images=self._extract_images_from_content(cleaned_content),
-                video_url=self._extract_video_url(cleaned_content, platform)
-            )
-            
-            posts.append(post_data)
-            logger.info(f"成功解析动态内容: {title[:50]}")
+            # 通用内容解析
+            generic_post = self._parse_generic_content(result, url, platform, title, content)
+            if generic_post:
+                posts.append(generic_post)
+                logger.info(f"通用内容解析成功: {title[:50]}")
             
         except Exception as e:
             logger.error(f"解析crawl4ai结果失败: {str(e)}")
             logger.exception("详细错误信息:")
             
         return posts
+    
+    def _extract_smart_title(self, result, url: str, platform: str) -> str:
+        """智能提取标题"""
+        # 优先级：metadata title > 页面title标签 > URL推断
+        title = ''
+        
+        if result.metadata and result.metadata.get('title'):
+            title = result.metadata['title'].strip()
+        
+        # 如果标题为空或太短，尝试从HTML中提取
+        if not title or len(title) < 5:
+            import re
+            if result.html:
+                title_match = re.search(r'<title[^>]*>([^<]+)</title>', result.html, re.IGNORECASE)
+                if title_match:
+                    title = title_match.group(1).strip()
+        
+        # 如果仍然没有合适的标题，从URL推断
+        if not title or len(title) < 5:
+            title = self._infer_title_from_url(url, platform)
+        
+        # 清理标题
+        title = self._clean_title(title) if title else '未知标题'
+        
+        return title
+    
+    def _extract_smart_content(self, result, url: str, platform: str) -> str:
+        """智能提取内容"""
+        content = ''
+        
+        # 优先级：cleaned_html > markdown > 原始html的文本部分
+        if result.cleaned_html and len(result.cleaned_html.strip()) > 50:
+            content = result.cleaned_html
+        elif result.markdown and len(result.markdown.strip()) > 50:
+            content = result.markdown
+        elif result.html:
+            # 从原始HTML中提取文本内容
+            content = self._extract_text_from_html(result.html)
+        
+        # 如果内容仍然太短，尝试其他策略
+        if len(content.strip()) < 100:
+            content = str(result.html)[:3000] if result.html else ''
+        
+        return content
+    
+    def _extract_text_from_html(self, html: str) -> str:
+        """从HTML中提取纯文本内容"""
+        import re
+        
+        if not html:
+            return ''
+        
+        # 移除script和style标签
+        html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+        
+        # 移除HTML标签
+        text = re.sub(r'<[^>]+>', ' ', html)
+        
+        # 清理空白字符
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
+    
+    def _infer_title_from_url(self, url: str, platform: str) -> str:
+        """从URL推断标题"""
+        import re
+        from urllib.parse import urlparse, unquote
+        
+        try:
+            parsed = urlparse(url)
+            path = unquote(parsed.path)
+            
+            # 平台特定的标题推断
+            if platform == 'weibo':
+                if '/u/' in path:
+                    return '微博用户动态'
+                elif '/status/' in path:
+                    return '微博动态'
+            elif platform == 'bilibili':
+                if '/video/' in path:
+                    return 'B站视频'
+                elif '/space/' in path:
+                    return 'B站用户空间'
+            elif platform == 'xiaohongshu':
+                return '小红书笔记'
+            elif platform == 'douyin':
+                return '抖音视频'
+            
+            # 通用推断
+            if path and len(path) > 1:
+                # 提取路径中的有意义部分
+                path_parts = [p for p in path.split('/') if p and not p.isdigit()]
+                if path_parts:
+                    return f"{platform}内容 - {path_parts[-1][:20]}"
+            
+            return f"{platform}内容"
+            
+        except Exception:
+            return f"{platform}内容"
+    
+    def _is_content_worth_processing(self, title: str, content: str, url: str, platform: str) -> bool:
+        """判断内容是否值得处理"""
+        # 基本长度检查
+        if len(title.strip()) < 3 or len(content.strip()) < 20:
+            return False
+        
+        # 检查是否为明显的错误页面
+        error_keywords = ['404', '403', '500', '错误', '异常', '无法访问', '页面不存在', 'not found', 'error']
+        title_lower = title.lower()
+        content_lower = content.lower()
+        
+        if any(keyword in title_lower or keyword in content_lower for keyword in error_keywords):
+            return False
+        
+        # 检查是否为登录页面
+        login_keywords = ['登录', '注册', 'login', 'register', 'sign in', 'sign up']
+        if any(keyword in title_lower for keyword in login_keywords) and len(content.strip()) < 200:
+            return False
+        
+        return True
+    
+    def _parse_platform_specific_content(self, result, url: str, platform: str, title: str, content: str) -> List[PostData]:
+        """平台特定内容解析"""
+        if platform == 'bilibili':
+            return self._parse_bilibili_content(result, url, title, content)
+        elif platform == 'weibo':
+            return self._parse_weibo_content(result, url, title, content)
+        elif platform == 'xiaohongshu':
+            return self._parse_xiaohongshu_content(result, url, title, content)
+        elif platform == 'douyin':
+            return self._parse_douyin_content(result, url, title, content)
+        
+        return []
+    
+    def _parse_generic_content(self, result, url: str, platform: str, title: str, content: str) -> Optional[PostData]:
+        """通用内容解析"""
+        try:
+            # 验证是否为有效的动态内容
+            if not self._is_valid_dynamic_content(title, content, url):
+                logger.info(f"内容未通过动态验证: {title[:50]}")
+                return None
+            
+            # 清理和优化内容
+            cleaned_content = self._clean_dynamic_content(content, platform)
+            
+            # 最终质量检查
+            if len(cleaned_content.strip()) < 30:
+                logger.info(f"清理后内容过短: {len(cleaned_content)} 字符")
+                return None
+            
+            # 提取各种信息
+            author = self._extract_author_from_platform(platform, url)
+            tags = self._extract_tags(cleaned_content)
+            images = self._extract_images_from_content(cleaned_content)
+            video_url = self._extract_video_url(cleaned_content, platform)
+            
+            # 创建PostData对象
+            post_data = PostData(
+                title=title,
+                content=cleaned_content[:2000],  # 限制内容长度
+                author=author,
+                platform=platform,
+                url=url,
+                published_at=datetime.now(),
+                tags=tags,
+                images=images,
+                video_url=video_url
+            )
+            
+            return post_data
+            
+        except Exception as e:
+            logger.error(f"通用内容解析失败: {str(e)}")
+            return None
 
     def _parse_bilibili_content(self, result, url: str, title: str, content: str) -> List[PostData]:
         """专门解析B站内容的方法"""
@@ -1799,6 +2149,274 @@ class UnifiedCrawlerService:
             logger.exception("B站解析详细错误:")
             
         return posts
+    
+    def _parse_weibo_content(self, result, url: str, title: str, content: str) -> List[PostData]:
+        """专门解析微博内容的方法"""
+        posts = []
+        
+        try:
+            # 微博特定的内容验证
+            weibo_indicators = [
+                'weibo.com', '微博', '转发', '评论', '赞', '博主', '粉丝',
+                '关注', '话题', '@', '#', '超话', '热搜', '实时'
+            ]
+            
+            content_lower = content.lower()
+            title_lower = title.lower()
+            
+            # 检查微博特征
+            weibo_score = sum(1 for indicator in weibo_indicators 
+                            if indicator in content_lower or indicator in title_lower)
+            
+            if weibo_score < 2:
+                logger.warning(f"微博内容特征不足，评分: {weibo_score}")
+                return posts
+            
+            # 清理微博内容
+            cleaned_content = self._clean_dynamic_content(content, 'weibo')
+            
+            if len(cleaned_content.strip()) < 20:
+                logger.warning(f"微博内容过短: {len(cleaned_content)} 字符")
+                return posts
+            
+            # 提取微博特有信息
+            author = self._extract_weibo_author(content, url)
+            images = self._extract_images_from_content(content)
+            tags = self._extract_weibo_tags(content)
+            
+            post_data = PostData(
+                title=self._clean_title(title),
+                content=cleaned_content[:2000],
+                author=author,
+                platform='weibo',
+                url=url,
+                published_at=datetime.now(),
+                tags=tags,
+                images=images,
+                video_url=''
+            )
+            
+            posts.append(post_data)
+            logger.info(f"微博内容解析成功: {title[:50]}")
+            
+        except Exception as e:
+            logger.error(f"微博内容解析失败: {str(e)}")
+            
+        return posts
+    
+    def _parse_xiaohongshu_content(self, result, url: str, title: str, content: str) -> List[PostData]:
+        """专门解析小红书内容的方法"""
+        posts = []
+        
+        try:
+            # 小红书特定验证
+            xhs_indicators = [
+                'xiaohongshu', '小红书', '笔记', '种草', '好物', '分享',
+                '推荐', '测评', '攻略', '教程', '心得', '体验'
+            ]
+            
+            content_lower = content.lower()
+            title_lower = title.lower()
+            
+            xhs_score = sum(1 for indicator in xhs_indicators 
+                          if indicator in content_lower or indicator in title_lower)
+            
+            if xhs_score < 1:
+                logger.warning(f"小红书内容特征不足，评分: {xhs_score}")
+                return posts
+            
+            # 清理小红书内容
+            cleaned_content = self._clean_dynamic_content(content, 'xiaohongshu')
+            
+            if len(cleaned_content.strip()) < 20:
+                logger.warning(f"小红书内容过短: {len(cleaned_content)} 字符")
+                return posts
+            
+            # 提取小红书特有信息
+            author = self._extract_xiaohongshu_author(content, url)
+            images = self._extract_images_from_content(content)
+            tags = self._extract_xiaohongshu_tags(content)
+            
+            post_data = PostData(
+                title=self._clean_title(title),
+                content=cleaned_content[:2000],
+                author=author,
+                platform='xiaohongshu',
+                url=url,
+                published_at=datetime.now(),
+                tags=tags,
+                images=images,
+                video_url=''
+            )
+            
+            posts.append(post_data)
+            logger.info(f"小红书内容解析成功: {title[:50]}")
+            
+        except Exception as e:
+            logger.error(f"小红书内容解析失败: {str(e)}")
+            
+        return posts
+    
+    def _parse_douyin_content(self, result, url: str, title: str, content: str) -> List[PostData]:
+        """专门解析抖音内容的方法"""
+        posts = []
+        
+        try:
+            # 抖音特定验证
+            douyin_indicators = [
+                'douyin', '抖音', '视频', '短视频', '直播', '音乐',
+                '舞蹈', '搞笑', '美食', '旅行', '时尚', '创作者'
+            ]
+            
+            content_lower = content.lower()
+            title_lower = title.lower()
+            
+            douyin_score = sum(1 for indicator in douyin_indicators 
+                             if indicator in content_lower or indicator in title_lower)
+            
+            if douyin_score < 1:
+                logger.warning(f"抖音内容特征不足，评分: {douyin_score}")
+                return posts
+            
+            # 清理抖音内容
+            cleaned_content = self._clean_dynamic_content(content, 'douyin')
+            
+            if len(cleaned_content.strip()) < 20:
+                logger.warning(f"抖音内容过短: {len(cleaned_content)} 字符")
+                return posts
+            
+            # 提取抖音特有信息
+            author = self._extract_douyin_author(content, url)
+            images = self._extract_images_from_content(content)
+            video_url = self._extract_video_url(content, 'douyin')
+            tags = self._extract_douyin_tags(content)
+            
+            post_data = PostData(
+                title=self._clean_title(title),
+                content=cleaned_content[:2000],
+                author=author,
+                platform='douyin',
+                url=url,
+                published_at=datetime.now(),
+                tags=tags,
+                images=images,
+                video_url=video_url
+            )
+            
+            posts.append(post_data)
+            logger.info(f"抖音内容解析成功: {title[:50]}")
+            
+        except Exception as e:
+            logger.error(f"抖音内容解析失败: {str(e)}")
+            
+        return posts
+    
+    def _extract_weibo_author(self, content: str, url: str) -> str:
+        """提取微博作者信息"""
+        import re
+        
+        # 尝试从内容中提取博主名称
+        author_patterns = [
+            r'博主[：:]([^\s]+)',
+            r'@([^\s]+)',
+            r'作者[：:]([^\s]+)'
+        ]
+        
+        for pattern in author_patterns:
+            match = re.search(pattern, content)
+            if match:
+                return match.group(1).strip()
+        
+        # 从URL中提取用户信息
+        user_match = re.search(r'/u/(\d+)', url)
+        if user_match:
+            return f'微博用户_{user_match.group(1)}'
+        
+        return '微博用户'
+    
+    def _extract_weibo_tags(self, content: str) -> List[str]:
+        """提取微博标签"""
+        import re
+        
+        tags = []
+        
+        # 提取话题标签 #话题#
+        topic_matches = re.findall(r'#([^#]+)#', content)
+        tags.extend([tag.strip() for tag in topic_matches if tag.strip()])
+        
+        # 提取@用户
+        mention_matches = re.findall(r'@([^\s]+)', content)
+        tags.extend([f'@{mention.strip()}' for mention in mention_matches if mention.strip()])
+        
+        return list(set(tags))[:10]  # 限制标签数量
+    
+    def _extract_xiaohongshu_author(self, content: str, url: str) -> str:
+        """提取小红书作者信息"""
+        import re
+        
+        author_patterns = [
+            r'作者[：:]([^\s]+)',
+            r'博主[：:]([^\s]+)',
+            r'@([^\s]+)'
+        ]
+        
+        for pattern in author_patterns:
+            match = re.search(pattern, content)
+            if match:
+                return match.group(1).strip()
+        
+        return '小红书用户'
+    
+    def _extract_xiaohongshu_tags(self, content: str) -> List[str]:
+        """提取小红书标签"""
+        import re
+        
+        tags = []
+        
+        # 提取话题标签
+        topic_matches = re.findall(r'#([^#]+)#', content)
+        tags.extend([tag.strip() for tag in topic_matches if tag.strip()])
+        
+        # 提取常见的小红书关键词
+        keywords = ['种草', '好物', '推荐', '测评', '攻略', '教程', '分享']
+        for keyword in keywords:
+            if keyword in content:
+                tags.append(keyword)
+        
+        return list(set(tags))[:10]
+    
+    def _extract_douyin_author(self, content: str, url: str) -> str:
+        """提取抖音作者信息"""
+        import re
+        
+        author_patterns = [
+            r'@([^\s]+)',
+            r'作者[：:]([^\s]+)',
+            r'创作者[：:]([^\s]+)'
+        ]
+        
+        for pattern in author_patterns:
+            match = re.search(pattern, content)
+            if match:
+                return match.group(1).strip()
+        
+        return '抖音用户'
+    
+    def _extract_douyin_tags(self, content: str) -> List[str]:
+        """提取抖音标签"""
+        import re
+        
+        tags = []
+        
+        # 提取话题标签
+        topic_matches = re.findall(r'#([^#]+)#', content)
+        tags.extend([tag.strip() for tag in topic_matches if tag.strip()])
+        
+        # 提取@用户
+        mention_matches = re.findall(r'@([^\s]+)', content)
+        tags.extend([f'@{mention.strip()}' for mention in mention_matches if mention.strip()])
+        
+        return list(set(tags))[:10]
     
     def _extract_bilibili_author(self, content: str, url: str) -> str:
         """提取B站作者信息"""
@@ -2386,17 +3004,23 @@ class UnifiedCrawlerService:
         return None  # 没有检测到错误
     
     def _is_valid_dynamic_content(self, title: str, content: str, url: str) -> bool:
-        """验证是否为有效的动态内容"""
-        # 排除的静态内容关键词
-        static_keywords = [
-            '首页', 'home', 'index',
+        """验证是否为有效的动态内容 - 优化版本"""
+        # 严格的错误关键词（这些一定要排除）
+        critical_error_keywords = [
+            '404', '403', '500', '502', '503',
+            '页面不存在', 'page not found', 'not found',
+            '访问异常', '页面异常', '无法访问', '访问受限',
+            'access denied', 'forbidden', 'unauthorized',
+            '该昵称目前不存在', '昵称不存在', '用户不存在', '账号不存在',
+            'user not found', 'account not found', 'profile not found'
+        ]
+        
+        # 轻度静态内容关键词（需要结合其他因素判断）
+        soft_static_keywords = [
             '关于我们', 'about', '联系我们', 'contact',
             '帮助中心', 'help', '服务条款', 'terms',
             '隐私政策', 'privacy', '免责声明',
-            '导航', 'navigation', '菜单', 'menu',
-            '404', '错误', 'error', '页面不存在',
-            '登录', 'login', '注册', 'register',
-            '访问异常', '访问受限', '页面无法访问'
+            '导航', 'navigation', '菜单', 'menu'
         ]
         
         # 动态内容关键词
@@ -2423,157 +3047,197 @@ class UnifiedCrawlerService:
         content_lower = content.lower()
         url_lower = url.lower()
         
-        # 特殊处理：微博用户页面即使标题包含'主页'也可能是动态内容
-        if 'weibo.com' in url_lower:
-            # 如果URL包含动态参数，认为是动态内容
-            dynamic_params = ['tabtype=feed', 'is_all=1', '/home', '/profile', '?']
-            has_dynamic_params = any(param in url_lower for param in dynamic_params)
-            
-            # 如果是用户页面（/u/ 或 /n/），即使没有动态参数也可能是动态内容
-            is_user_page = '/u/' in url_lower or '/n/' in url_lower
-            
-            if has_dynamic_params or is_user_page:
-                logger.info(f"微博动态页面检测通过: {title[:50]}, 动态参数: {has_dynamic_params}, 用户页面: {is_user_page}")
-                # 对于微博用户页面，放宽静态关键词检查
-                weibo_strict_static = ['404', '错误', 'error', '页面不存在', '访问异常', '访问受限', '页面无法访问']
-                for keyword in weibo_strict_static:
-                    if keyword in title_lower:
-                        logger.warning(f"检测到严重错误关键词 '{keyword}' 在微博标题中: {title[:50]}")
-                        return False
-                # 继续后续验证，但不因为'主页'等关键词直接拒绝
-            else:
-                # 检查是否包含静态内容关键词（排除'主页'）
-                weibo_static_keywords = [kw for kw in static_keywords if kw not in ['主页', 'home']]
-                for keyword in weibo_static_keywords:
-                    if keyword in title_lower:
-                        logger.warning(f"检测到静态内容关键词 '{keyword}' 在微博标题中: {title[:50]}")
-                        return False
-        else:
-            # 非微博平台，正常检查静态内容关键词
-            for keyword in static_keywords:
-                if keyword in title_lower:
-                    logger.warning(f"检测到静态内容关键词 '{keyword}' 在标题中: {title[:50]}")
-                    return False
-        
-        # 特殊处理：如果标题或内容包含错误信息，直接拒绝
-        error_indicators = [
-            '访问异常', '页面异常', '无法访问', '404',
-            '该昵称目前不存在', '昵称不存在', '用户不存在', '页面不存在',
-            '抱歉', '对不起', 'sorry', 'not found', 'user not found',
-            '账号不存在', '用户名不存在', '找不到用户', '无此用户'
-        ]
-        
-        for error_word in error_indicators:
-            if error_word in title_lower or error_word in content_lower:
-                logger.warning(f"检测到错误页面或用户不存在: {title[:50]}, 错误关键词: {error_word}")
+        # 首先检查严重错误关键词（这些必须排除）
+        for keyword in critical_error_keywords:
+            if keyword in title_lower or keyword in content_lower:
+                logger.warning(f"检测到严重错误关键词 '{keyword}': {title[:50]}")
                 return False
         
-        # 微博特定验证逻辑
-        if 'weibo.com' in url_lower:
-            # 微博特定的动态内容关键词
-            weibo_keywords = [
-                '微博', 'weibo', '发布', '转发', '评论', '点赞',
-                '话题', '用户', '博主', '粉丝', '关注',
-                '动态', '最新', '更新', '时间线', '内容'
-            ]
-            
-            weibo_score = 0
-            for keyword in weibo_keywords:
-                if keyword in title_lower or keyword in content_lower:
-                    weibo_score += 1
-            
-            # 微博用户页面验证：如果是用户页面，降低验证要求
-            if '/n/' in url_lower or '/u/' in url_lower:
-                # 用户页面只需要基本的内容长度即可
-                if len(content.strip()) >= 50:
-                    logger.info(f"微博用户页面验证通过: {title[:50]}, 内容长度: {len(content.strip())}")
-                    return True
-                else:
-                    logger.warning(f"微博用户页面内容过短: {len(content.strip())} 字符")
-                    return False
-            elif weibo_score >= 1 and len(content.strip()) >= 30:
-                logger.info(f"微博动态内容验证通过: {title[:50]}, 得分: {weibo_score}")
-                return True
-            else:
-                logger.warning(f"微博内容验证失败，得分: {weibo_score}, 内容长度: {len(content.strip())}")
-                return False
-        
-        # 如果是B站URL，使用B站特定验证
-        elif 'bilibili.com' in url_lower:
-            # B站特定验证逻辑
-            bilibili_score = 0
-            for keyword in bilibili_keywords:
-                if keyword in title_lower or keyword in content_lower:
-                    bilibili_score += 1
-            
-            # B站内容需要更高的标准
-            if bilibili_score >= 1 and len(content.strip()) >= 50:
-                logger.info(f"B站动态内容验证通过: {title[:50]}")
-                return True
-            else:
-                logger.warning(f"B站内容验证失败，得分: {bilibili_score}, 内容长度: {len(content.strip())}")
-                return False
-        
-        # 如果是搜索页面，降低要求但增加验证
-        if 'search' in url_lower or '搜索' in title_lower:
-            # 搜索页面需要包含实际的搜索结果内容
-            search_indicators = ['搜索结果', '找到', '相关', '匹配', 'result']
-            has_search_content = any(indicator in content_lower for indicator in search_indicators)
-            return has_search_content and len(content.strip()) >= 100
-        
-        # 检查内容长度（太短的内容可能是导航或错误页面）
-        if len(content.strip()) < 50:
-            logger.warning(f"内容过短，可能是无效页面: {len(content.strip())} 字符")
+        # 检查内容长度（太短的内容可能无效）
+        if len(content.strip()) < 30:
+            logger.warning(f"内容过短: {len(content.strip())} 字符")
             return False
         
-        # 检查是否包含动态内容关键词
-        dynamic_score = 0
-        for keyword in dynamic_keywords:
-            if keyword in title_lower or keyword in content_lower:
-                dynamic_score += 1
+        # 平台特定验证逻辑
+        if 'weibo.com' in url_lower:
+            return self._validate_weibo_content(title_lower, content_lower, url_lower)
+        elif 'bilibili.com' in url_lower:
+            return self._validate_bilibili_content(title_lower, content_lower, url_lower)
+        elif 'xiaohongshu.com' in url_lower:
+            return self._validate_xiaohongshu_content(title_lower, content_lower, url_lower)
+        elif 'douyin.com' in url_lower:
+            return self._validate_douyin_content(title_lower, content_lower, url_lower)
+        else:
+            return self._validate_generic_content(title_lower, content_lower, url_lower, soft_static_keywords)
         
-        # 至少包含2个动态内容关键词才认为是有效内容
-        is_valid = dynamic_score >= 2
-        if not is_valid:
-            logger.warning(f"动态内容验证失败，得分: {dynamic_score}, 标题: {title[:50]}")
+    
+    def _validate_weibo_content(self, title_lower: str, content_lower: str, url_lower: str) -> bool:
+        """微博内容验证"""
+        # 微博特定的有效内容指标
+        weibo_indicators = [
+            '转发', '评论', '赞', '超话', '话题', '博主', '微博',
+            '发布', '分享', '粉丝', '关注', '动态', '内容', '用户'
+        ]
         
-        return is_valid
+        # 检查是否为用户页面
+        is_user_page = '/u/' in url_lower or '/n/' in url_lower or '/profile' in url_lower
+        
+        if is_user_page:
+            # 用户页面更宽松的验证 - 只要有基本内容即可
+            return len(content_lower) > 30
+        
+        # 普通微博内容验证 - 需要包含微博特征
+        return any(indicator in content_lower for indicator in weibo_indicators)
+    
+    def _validate_bilibili_content(self, title_lower: str, content_lower: str, url_lower: str) -> bool:
+        """B站内容验证"""
+        bilibili_indicators = [
+            '投币', '收藏', '分享', 'av', 'bv', '播放', '弹幕', 'up主',
+            '视频', '番剧', '直播', '专栏', '动画', '游戏', 'bilibili', 'b站'
+        ]
+        
+        return any(indicator in content_lower for indicator in bilibili_indicators)
+    
+    def _validate_xiaohongshu_content(self, title_lower: str, content_lower: str, url_lower: str) -> bool:
+        """小红书内容验证"""
+        xiaohongshu_indicators = [
+            '笔记', '种草', '好物', '推荐', '分享', '美妆', '穿搭',
+            '生活', '旅行', '美食', '护肤', '彩妆', '小红书'
+        ]
+        
+        return any(indicator in content_lower for indicator in xiaohongshu_indicators)
+    
+    def _validate_douyin_content(self, title_lower: str, content_lower: str, url_lower: str) -> bool:
+        """抖音内容验证"""
+        douyin_indicators = [
+            '抖音', '短视频', '音乐', '特效', '挑战', '直播',
+            '作品', '粉丝', '关注', '点赞', '评论', 'douyin'
+        ]
+        
+        return any(indicator in content_lower for indicator in douyin_indicators)
+    
+    def _validate_generic_content(self, title_lower: str, content_lower: str, url_lower: str, soft_static_keywords: list) -> bool:
+        """通用内容验证"""
+        # 检查轻度静态关键词（需要结合内容长度判断）
+        has_soft_static = any(keyword in title_lower for keyword in soft_static_keywords)
+        
+        if has_soft_static and len(content_lower) < 200:
+            return False
+        
+        # 通用动态内容指标
+        dynamic_indicators = [
+            '发布', 'post', '评论', 'comment', '分享', 'share',
+            '内容', 'content', '文章', 'article', '新闻', 'news',
+            '用户', 'user', '时间', 'time', '更新', 'update'
+        ]
+        
+        return any(indicator in content_lower for indicator in dynamic_indicators)
     
     def _clean_dynamic_content(self, content: str, platform: str) -> str:
-        """清理动态内容，移除无关信息"""
+        """清理动态内容，移除无关信息 - 优化版本"""
         import re
         
-        # 移除HTML标签
-        content = re.sub(r'<[^>]+>', '', content)
+        if not content:
+            return ''
+        
+        # 移除HTML标签但保留文本内容
+        content = re.sub(r'<script[^>]*>.*?</script>', '', content, flags=re.DOTALL | re.IGNORECASE)
+        content = re.sub(r'<style[^>]*>.*?</style>', '', content, flags=re.DOTALL | re.IGNORECASE)
+        content = re.sub(r'<[^>]+>', ' ', content)
         
         # 移除多余的空白字符
         content = re.sub(r'\s+', ' ', content)
         
-        # 移除常见的导航和页面元素
-        remove_patterns = [
-            r'导航.*?菜单',
-            r'首页.*?登录',
-            r'版权所有.*?\d{4}',
-            r'Copyright.*?\d{4}',
-            r'备案号.*?ICP',
-            r'友情链接',
-            r'相关推荐',
-            r'广告',
-            r'Advertisement'
+        # 移除常见的无用内容模式
+        noise_patterns = [
+            r'导航.*?菜单.*?',
+            r'首页.*?登录.*?注册',
+            r'版权所有.*?\d{4}.*?',
+            r'Copyright.*?\d{4}.*?',
+            r'备案号.*?ICP.*?',
+            r'友情链接.*?',
+            r'相关推荐.*?',
+            r'广告.*?',
+            r'Advertisement.*?',
+            r'点击.*?查看.*?',
+            r'更多.*?内容.*?',
+            r'加载.*?中.*?',
+            r'正在.*?加载.*?',
+            r'网络.*?错误.*?',
+            r'刷新.*?重试.*?',
+            r'登录.*?查看.*?更多.*?',
+            r'下载.*?APP.*?',
+            r'打开.*?应用.*?',
+            r'扫码.*?下载.*?'
         ]
         
-        for pattern in remove_patterns:
-            content = re.sub(pattern, '', content, flags=re.IGNORECASE)
+        for pattern in noise_patterns:
+            content = re.sub(pattern, ' ', content, flags=re.IGNORECASE)
         
         # 平台特定清理
         if platform == 'weibo':
-            # 移除微博特有的无关内容
-            content = re.sub(r'转发.*?评论.*?赞', '', content)
+            # 保留有用的微博内容，移除无关操作按钮
+            weibo_noise = [
+                r'转发\s*\d*\s*评论\s*\d*\s*赞\s*\d*',
+                r'展开全文',
+                r'收起全文',
+                r'查看图片',
+                r'网页链接',
+                r'全文',
+                r'O网页链接'
+            ]
+            for pattern in weibo_noise:
+                content = re.sub(pattern, ' ', content, flags=re.IGNORECASE)
+                
         elif platform == 'bilibili':
-            # 移除B站特有的无关内容
-            content = re.sub(r'投币.*?收藏.*?分享', '', content)
+            # 保留有用的B站内容，移除无关操作
+            bilibili_noise = [
+                r'投币\s*\d*\s*收藏\s*\d*\s*分享\s*\d*',
+                r'点赞\s*\d*',
+                r'播放\s*\d*',
+                r'弹幕\s*\d*',
+                r'稍后再看',
+                r'添加到稍后再看',
+                r'已添加到稍后再看'
+            ]
+            for pattern in bilibili_noise:
+                content = re.sub(pattern, ' ', content, flags=re.IGNORECASE)
+                
+        elif platform == 'xiaohongshu':
+            # 小红书特定清理
+            xhs_noise = [
+                r'点赞\s*\d*',
+                r'收藏\s*\d*',
+                r'评论\s*\d*',
+                r'分享\s*\d*',
+                r'查看全文',
+                r'展开'
+            ]
+            for pattern in xhs_noise:
+                content = re.sub(pattern, ' ', content, flags=re.IGNORECASE)
+                
+        elif platform == 'douyin':
+            # 抖音特定清理
+            douyin_noise = [
+                r'点赞\s*\d*',
+                r'评论\s*\d*',
+                r'分享\s*\d*',
+                r'收藏\s*\d*',
+                r'关注',
+                r'已关注'
+            ]
+            for pattern in douyin_noise:
+                content = re.sub(pattern, ' ', content, flags=re.IGNORECASE)
         
-        return content.strip()
+        # 最终清理
+        content = re.sub(r'\s+', ' ', content)
+        content = content.strip()
+        
+        # 如果内容太短，可能是无效内容
+        if len(content) < 10:
+            return ''
+        
+        return content
     
     def _clean_title(self, title: str) -> str:
         """清理标题"""
@@ -4102,19 +4766,138 @@ async def get_supported_platforms():
         "note": "统一爬虫服务，支持通用网页爬取和平台特定内容提取"
     }
 
+@app.post("/mcp/crawl")
+async def mcp_crawl_url(request: MCPCrawlRequest):
+    """使用MCP服务爬取单个URL"""
+    try:
+        await crawler_service.ensure_initialized()
+        
+        if not crawler_service.mcp_enabled:
+            raise HTTPException(status_code=503, detail="MCP服务未启用")
+        
+        logger.info(f"开始使用MCP爬取URL: {request.url}")
+        
+        result = await crawler_service.crawl_with_mcp(
+            url=request.url,
+            platform=request.platform
+        )
+        
+        return MCPCrawlResponse(
+            url=request.url,
+            title=result.title,
+            content=result.content,
+            cleaned_html=result.cleaned_html or "",
+            markdown=result.markdown,
+            links=result.links or [],
+            images=result.images or [],
+            metadata=result.metadata or {},
+            crawled_at=datetime.now(),
+            success=result.success,
+            error_message=result.error_message,
+            processing_time=result.processing_time or 0.0,
+            mcp_service_used=getattr(result, 'mcp_service_used', 'unknown')
+        )
+    
+    except Exception as e:
+        logger.error(f"MCP爬取URL出错 {request.url}: {e}")
+        return MCPCrawlResponse(
+            url=request.url,
+            title="",
+            content="",
+            cleaned_html="",
+            markdown="",
+            links=[],
+            images=[],
+            metadata={},
+            crawled_at=datetime.now(),
+            success=False,
+            error_message=str(e),
+            processing_time=0.0,
+            mcp_service_used="unknown"
+        )
+
+@app.post("/mcp/crawl/batch")
+async def mcp_crawl_batch(request: MCPBatchCrawlRequest):
+    """使用MCP服务批量爬取多个URL"""
+    try:
+        await crawler_service.ensure_initialized()
+        
+        if not crawler_service.mcp_enabled:
+            raise HTTPException(status_code=503, detail="MCP服务未启用")
+        
+        logger.info(f"开始使用MCP批量爬取 {len(request.urls)} 个URL")
+        
+        results = await crawler_service.crawl_batch_with_mcp(
+            urls=request.urls,
+            platform=request.platform
+        )
+        
+        responses = []
+        for result in results:
+            responses.append(MCPCrawlResponse(
+                url=result.url,
+                title=result.title,
+                content=result.content,
+                cleaned_html=result.cleaned_html or "",
+                markdown=result.markdown,
+                links=result.links or [],
+                images=result.images or [],
+                metadata=result.metadata or {},
+                crawled_at=datetime.now(),
+                success=result.success,
+                error_message=result.error_message,
+                processing_time=result.processing_time or 0.0,
+                mcp_service_used=getattr(result, 'mcp_service_used', 'unknown')
+            ))
+        
+        total_processing_time = sum(r.processing_time for r in responses)
+        
+        return MCPBatchCrawlResponse(
+            results=responses,
+            total_urls=len(responses),
+            successful_count=len([r for r in responses if r.success]),
+            failed_count=len([r for r in responses if not r.success]),
+            total_processing_time=total_processing_time
+        )
+    
+    except Exception as e:
+        logger.error(f"MCP批量爬取出错: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/mcp/status")
+async def get_mcp_status():
+    """获取MCP服务状态"""
+    try:
+        await crawler_service.ensure_initialized()
+        status = await crawler_service.get_mcp_service_status()
+        return status
+    except Exception as e:
+        logger.error(f"获取MCP状态出错: {e}")
+        return MCPSystemStatus(
+            enabled=False,
+            browser_mcp=MCPServiceStatus(available=False, status="error", last_used=None),
+            local_mcp=MCPServiceStatus(available=False, status="error", last_used=None),
+            crawl4ai_integration=False
+        )
+
 @app.get("/status")
 async def get_service_status():
     """获取服务状态"""
+    mcp_status = "enabled" if crawler_service.mcp_enabled else "disabled"
     return {
         "service": "unified-crawler",
         "version": "2.0.0",
         "status": "running",
         "initialized": crawler_service.session is not None,
+        "mcp_enabled": crawler_service.mcp_enabled,
         "uptime": datetime.now(),
         "endpoints": [
             "/crawl - 通用URL爬取",
             "/crawl/batch - 批量URL爬取",
             "/crawl/platform - 平台特定爬取",
+            "/mcp/crawl - MCP单个URL爬取",
+            "/mcp/crawl/batch - MCP批量URL爬取",
+            "/mcp/status - MCP服务状态",
             "/platforms - 支持的平台列表",
             "/health - 健康检查"
         ]

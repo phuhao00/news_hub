@@ -452,7 +452,7 @@ export default function CrawlerPage() {
               <div className="text-xs text-gray-500 space-y-1">
                 <div>作者: {content.author}</div>
                 <div>发布: {content.published_at ? new Date(content.published_at).toLocaleString() : '未知'}</div>
-                {content.tags.length > 0 && (
+                {content.tags && content.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {content.tags.map((tag, index) => (
                       <span key={index} className="bg-gray-100 text-gray-600 px-2 py-1 rounded-full text-xs">

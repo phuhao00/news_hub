@@ -1,42 +1,42 @@
 #!/usr/bin/env pwsh
-# 启动MinIO Docker服务
+# Start MinIO Docker Service
 
-Write-Host "正在启动MinIO Docker服务..." -ForegroundColor Green
+Write-Host "Starting MinIO Docker service..." -ForegroundColor Green
 
-# 检查Docker是否运行
+# Check if Docker is running
 try {
     docker version | Out-Null
-    Write-Host "Docker服务正在运行" -ForegroundColor Green
+    Write-Host "Docker service is running" -ForegroundColor Green
 } catch {
-    Write-Host "错误: Docker服务未运行，请先启动Docker Desktop" -ForegroundColor Red
+    Write-Host "Error: Docker service is not running, please start Docker Desktop first" -ForegroundColor Red
     exit 1
 }
 
-# 启动MinIO服务
+# Start MinIO service
 try {
-    Write-Host "启动MinIO容器..." -ForegroundColor Yellow
+    Write-Host "Starting MinIO container..." -ForegroundColor Yellow
     docker-compose -f docker-compose.minio.yml up -d
     
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "MinIO服务启动成功!" -ForegroundColor Green
-        Write-Host "MinIO API地址: http://localhost:9000" -ForegroundColor Cyan
-        Write-Host "MinIO控制台地址: http://localhost:9001" -ForegroundColor Cyan
-        Write-Host "用户名: minioadmin" -ForegroundColor Cyan
-        Write-Host "密码: minioadmin123" -ForegroundColor Cyan
+        Write-Host "MinIO service started successfully!" -ForegroundColor Green
+        Write-Host "MinIO API address: http://localhost:9000" -ForegroundColor Cyan
+        Write-Host "MinIO console address: http://localhost:9001" -ForegroundColor Cyan
+        Write-Host "Username: minioadmin" -ForegroundColor Cyan
+        Write-Host "Password: minioadmin123" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "等待MinIO服务完全启动..." -ForegroundColor Yellow
+        Write-Host "Waiting for MinIO service to fully start..." -ForegroundColor Yellow
         Start-Sleep -Seconds 10
         
-        # 检查服务状态
-        Write-Host "检查MinIO服务状态..." -ForegroundColor Yellow
+        # Check service status
+        Write-Host "Checking MinIO service status..." -ForegroundColor Yellow
         docker-compose -f docker-compose.minio.yml ps
     } else {
-        Write-Host "MinIO服务启动失败" -ForegroundColor Red
+        Write-Host "MinIO service startup failed" -ForegroundColor Red
         exit 1
     }
 } catch {
-    Write-Host "启动MinIO服务时发生错误: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Error occurred while starting MinIO service: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "MinIO服务已成功启动并运行!" -ForegroundColor Green
+Write-Host "MinIO service has been successfully started and is running!" -ForegroundColor Green

@@ -1,0 +1,220 @@
+{
+  "mcp_services": {
+    "enabled": true,
+    "service_priority": ["browser_mcp", "local_mcp"],
+    "fallback_enabled": true,
+    "default_timeout": 30,
+    "max_retries": 3
+  },
+  "browser_mcp": {
+    "mcp_endpoint": "http://localhost:3001",
+    "timeout": 45,
+    "max_retries": 3,
+    "default_viewport": {
+      "width": 1920,
+      "height": 1080
+    },
+    "default_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "stealth_mode": true,
+    "screenshot_enabled": false,
+    "pdf_enabled": false,
+    "platform_configs": {
+      "weibo": {
+        "wait_for": "networkidle",
+        "timeout": 60000,
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "headers": {
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache"
+        },
+        "javascript": [
+          "console.log('微博页面MCP处理开始...');",
+          "await new Promise(resolve => setTimeout(resolve, 5000));",
+          "// 等待微博内容加载",
+          "const weiboSelectors = ['.WB_detail', '.WB_feed_detail', '.WB_cardwrap'];",
+          "let contentFound = false;",
+          "for (let attempt = 0; attempt < 10; attempt++) {",
+          "  for (const selector of weiboSelectors) {",
+          "    if (document.querySelectorAll(selector).length > 0) {",
+          "      contentFound = true;",
+          "      break;",
+          "    }",
+          "  }",
+          "  if (contentFound) break;",
+          "  await new Promise(resolve => setTimeout(resolve, 2000));",
+          "}",
+          "console.log('微博页面MCP处理完成');"
+        ]
+      },
+      "bilibili": {
+        "wait_for": "networkidle",
+        "timeout": 45000,
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "headers": {
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          "Referer": "https://www.bilibili.com/"
+        },
+        "javascript": [
+          "console.log('B站页面MCP处理开始...');",
+          "document.querySelectorAll('video').forEach(v => v.pause());",
+          "await new Promise(resolve => setTimeout(resolve, 3000));",
+          "console.log('B站页面MCP处理完成');"
+        ]
+      },
+      "xiaohongshu": {
+        "wait_for": "networkidle",
+        "timeout": 40000,
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "headers": {
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          "Referer": "https://www.xiaohongshu.com/"
+        },
+        "javascript": [
+          "console.log('小红书页面MCP处理开始...');",
+          "await new Promise(resolve => setTimeout(resolve, 2500));",
+          "window.scrollTo(0, 300);",
+          "await new Promise(resolve => setTimeout(resolve, 1500));",
+          "console.log('小红书页面MCP处理完成');"
+        ]
+      },
+      "douyin": {
+        "wait_for": "networkidle",
+        "timeout": 50000,
+        "viewport": {
+          "width": 1920,
+          "height": 1080
+        },
+        "headers": {
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          "Referer": "https://www.douyin.com/"
+        },
+        "javascript": [
+          "console.log('抖音页面MCP处理开始...');",
+          "document.querySelectorAll('video').forEach(v => v.pause());",
+          "await new Promise(resolve => setTimeout(resolve, 3000));",
+          "console.log('抖音页面MCP处理完成');"
+        ]
+      }
+    }
+  },
+  "local_mcp": {
+    "mcp_endpoint": "http://localhost:8080",
+    "timeout": 20,
+    "max_retries": 2,
+    "default_headers": {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      "Accept-Encoding": "gzip, deflate, br",
+      "DNT": "1",
+      "Connection": "keep-alive",
+      "Upgrade-Insecure-Requests": "1"
+    },
+    "follow_redirects": true,
+    "verify_ssl": true,
+    "platform_configs": {
+      "general": {
+        "timeout": 15,
+        "headers": {
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+        }
+      },
+      "news": {
+        "timeout": 20,
+        "headers": {
+          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          "Cache-Control": "no-cache"
+        }
+      }
+    }
+  },
+  "crawl4ai_integration": {
+    "enabled": true,
+    "process_mcp_content": true,
+    "content_validation": {
+      "min_content_length": 100,
+      "required_tags": ["title", "body"],
+      "exclude_empty_content": true
+    },
+    "extraction_config": {
+      "word_count_threshold": 10,
+      "extract_links": true,
+      "extract_images": true,
+      "extract_metadata": true,
+      "clean_html": true
+    },
+    "platform_extraction": {
+      "weibo": {
+        "css_selectors": [
+          ".WB_detail .WB_text",
+          ".WB_feed_detail .WB_text",
+          ".WB_cardwrap .WB_text",
+          ".WB_text",
+          ".weibo-text"
+        ],
+        "exclude_selectors": [
+          ".WB_expand",
+          ".WB_media_a",
+          ".WB_func"
+        ]
+      },
+      "bilibili": {
+        "css_selectors": [
+          ".video-info-title",
+          ".video-title",
+          ".video-desc .desc-info",
+          ".up-info .up-name"
+        ],
+        "exclude_selectors": [
+          ".video-toolbar",
+          ".video-share",
+          ".video-like"
+        ]
+      },
+      "xiaohongshu": {
+        "css_selectors": [
+          ".note-item .note-text",
+          ".note-detail .note-content",
+          ".content .desc",
+          ".title"
+        ],
+        "exclude_selectors": [
+          ".note-share",
+          ".note-like",
+          ".note-comment"
+        ]
+      },
+      "douyin": {
+        "css_selectors": [
+          ".video-info",
+          ".video-desc",
+          ".author-info",
+          ".video-title"
+        ],
+        "exclude_selectors": [
+          ".video-share",
+          ".video-like",
+          ".video-comment"
+        ]
+      }
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "file": "mcp_service.log",
+    "max_size": "10MB",
+    "backup_count": 5
+  }
+}
