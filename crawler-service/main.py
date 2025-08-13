@@ -29,6 +29,9 @@ from mcp_crawl4ai_integration import (
     cleanup_mcp_crawl4ai_processor
 )
 
+# 登录状态管理模块
+from login_state import initialize_managers, shutdown_managers, router as login_state_router
+
 # Windows上的asyncio事件循环策略修复
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -4545,6 +4548,32 @@ async def lifespan(app: FastAPI):
     # 启动时
     try:
         await crawler_service.initialize()
+        
+        # 初始化登录状态管理
+        try:
+            # 创建MongoDB连接
+            from motor.motor_asyncio import AsyncIOMotorClient
+            mongo_client = AsyncIOMotorClient("mongodb://localhost:27017")
+            db = mongo_client.newshub
+            
+            # 创建Redis连接
+            import redis.asyncio as aioredis
+            redis_client = None
+            try:
+                redis_client = aioredis.from_url("redis://localhost:6379")
+                # 测试Redis连接
+                await redis_client.ping()
+                logger.info("Redis连接成功")
+            except Exception as redis_error:
+                logger.warning(f"Redis连接失败，将使用无缓存模式: {redis_error}")
+                redis_client = None
+            
+            # 初始化登录状态管理器
+            await initialize_managers(db=db, redis_client=redis_client)
+            logger.info("登录状态管理初始化完成")
+        except Exception as e:
+            logger.warning(f"登录状态管理初始化失败: {e}")
+        
         logger.info("应用启动完成")
     except Exception as e:
         logger.error(f"应用初始化失败: {e}")
@@ -4555,6 +4584,14 @@ async def lifespan(app: FastAPI):
     # 关闭时
     try:
         await crawler_service.cleanup()
+        
+        # 清理登录状态管理
+        try:
+            await shutdown_managers()
+            logger.info("登录状态管理清理完成")
+        except Exception as e:
+            logger.warning(f"登录状态管理清理失败: {e}")
+        
         logger.info("应用关闭完成")
     except Exception as e:
         logger.error(f"应用关闭过程中出错: {e}")
@@ -4567,6 +4604,20 @@ app = FastAPI(
     description="整合了通用爬虫和平台特定爬虫的统一服务",
     lifespan=lifespan
 )
+
+# 添加CORS中间件
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # 允许前端域名
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许所有HTTP方法
+    allow_headers=["*"],  # 允许所有请求头
+)
+
+# 添加登录状态管理路由
+app.include_router(login_state_router)
 
 # ==================== API 端点 ====================
 

@@ -1,0 +1,430 @@
+# Session Manager for Login State Management
+# Manages user sessions across different platforms with Redis caching
+
+import asyncio
+import uuid
+import json
+from typing import Dict, Optional, List
+from datetime import datetime, timedelta
+import redis.asyncio as aioredis
+from motor.motor_asyncio import AsyncIOMotorDatabase
+from cryptography.fernet import Fernet
+import logging
+
+logger = logging.getLogger(__name__)
+
+class SessionManager:
+    """Session management service with Redis caching and MongoDB persistence"""
+    
+    def __init__(self, db: AsyncIOMotorDatabase, redis_client: aioredis.Redis = None):
+        self.db = db
+        self.redis = redis_client
+        self.active_sessions: Dict[str, dict] = {}
+        
+        # Initialize encryption for session data
+        self.encryption_key = Fernet.generate_key()
+        self.cipher = Fernet(self.encryption_key)
+        
+        # Session configuration
+        self.session_timeout = timedelta(hours=24)  # Default 24 hours
+        self.cleanup_interval = 300  # 5 minutes
+        
+        # Start cleanup task
+        asyncio.create_task(self._periodic_cleanup())
+    
+    async def create_session(self, user_id: str, platform: str, 
+                           browser_config: dict = None) -> dict:
+        """Create a new login session"""
+        try:
+            session_id = f"sess_{uuid.uuid4().hex[:12]}"
+            expires_at = datetime.utcnow() + self.session_timeout
+            
+            session_data = {
+                "session_id": session_id,
+                "user_id": user_id,
+                "platform": platform,
+                "is_active": True,
+                "is_logged_in": False,
+                "login_user": None,
+                "created_at": datetime.utcnow(),
+                "expires_at": expires_at,
+                "last_activity": datetime.utcnow(),
+                "browser_config": browser_config or {},
+                "metadata": {
+                    "user_agent": browser_config.get("user_agent") if browser_config else None,
+                    "ip_address": None,  # Will be set by API handler
+                    "browser_version": None
+                }
+            }
+            
+            # Save to database
+            await self.db.sessions.insert_one(session_data.copy())
+            
+            # Cache in Redis if available
+            if self.redis:
+                await self._cache_session(session_id, session_data)
+            
+            # Store in memory
+            self.active_sessions[session_id] = session_data
+            
+            logger.info(f"Created session {session_id} for user {user_id} on platform {platform}")
+            return session_data
+            
+        except Exception as e:
+            logger.error(f"Failed to create session: {e}")
+            raise
+    
+    async def validate_session(self, session_id: str) -> Optional[dict]:
+        """Validate session and return session data if valid"""
+        try:
+            # First check memory cache
+            if session_id in self.active_sessions:
+                session_data = self.active_sessions[session_id]
+                if self._is_session_valid(session_data):
+                    return session_data
+                else:
+                    # Remove expired session from memory
+                    del self.active_sessions[session_id]
+            
+            # Check Redis cache if available
+            if self.redis:
+                session_data = await self._get_cached_session(session_id)
+                if session_data and self._is_session_valid(session_data):
+                    # Restore to memory cache
+                    self.active_sessions[session_id] = session_data
+                    return session_data
+            
+            # Check database
+            session_data = await self.db.sessions.find_one({"session_id": session_id})
+            if session_data and self._is_session_valid(session_data):
+                # Restore to caches
+                self.active_sessions[session_id] = session_data
+                if self.redis:
+                    await self._cache_session(session_id, session_data)
+                return session_data
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to validate session {session_id}: {e}")
+            return None
+    
+    async def update_login_status(self, session_id: str, is_logged_in: bool, 
+                                login_user: str = None, metadata: dict = None) -> bool:
+        """Update login status for a session"""
+        try:
+            update_data = {
+                "is_logged_in": is_logged_in,
+                "last_activity": datetime.utcnow()
+            }
+            
+            if login_user:
+                update_data["login_user"] = login_user
+            
+            if metadata:
+                update_data["metadata"] = metadata
+            
+            # Update database
+            result = await self.db.sessions.update_one(
+                {"session_id": session_id},
+                {"$set": update_data}
+            )
+            
+            if result.modified_count == 0:
+                logger.warning(f"No session found to update: {session_id}")
+                return False
+            
+            # Update memory cache
+            if session_id in self.active_sessions:
+                self.active_sessions[session_id].update(update_data)
+            
+            # Update Redis cache
+            if self.redis:
+                session_data = await self.validate_session(session_id)
+                if session_data:
+                    await self._cache_session(session_id, session_data)
+            
+            logger.info(f"Updated login status for session {session_id}: logged_in={is_logged_in}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update login status for session {session_id}: {e}")
+            return False
+    
+    async def update_activity(self, session_id: str) -> bool:
+        """Update last activity timestamp for a session"""
+        try:
+            current_time = datetime.utcnow()
+            
+            # Update database
+            await self.db.sessions.update_one(
+                {"session_id": session_id},
+                {"$set": {"last_activity": current_time}}
+            )
+            
+            # Update memory cache
+            if session_id in self.active_sessions:
+                self.active_sessions[session_id]["last_activity"] = current_time
+            
+            # Update Redis cache
+            if self.redis and session_id in self.active_sessions:
+                await self._cache_session(session_id, self.active_sessions[session_id])
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update activity for session {session_id}: {e}")
+            return False
+    
+    async def delete_session(self, session_id: str) -> bool:
+        """Delete a session"""
+        try:
+            # Remove from database
+            result = await self.db.sessions.delete_one({"session_id": session_id})
+            
+            # Remove from memory cache
+            if session_id in self.active_sessions:
+                del self.active_sessions[session_id]
+            
+            # Remove from Redis cache
+            if self.redis:
+                await self.redis.delete(f"session:{session_id}")
+            
+            logger.info(f"Deleted session {session_id}")
+            return result.deleted_count > 0
+            
+        except Exception as e:
+            logger.error(f"Failed to delete session {session_id}: {e}")
+            return False
+    
+    async def get_user_sessions(self, user_id: str, platform: str = None) -> List[dict]:
+        """Get all sessions for a user"""
+        try:
+            query = {"user_id": user_id, "is_active": True}
+            if platform:
+                query["platform"] = platform
+            
+            cursor = self.db.sessions.find(query)
+            sessions = await cursor.to_list(length=None)
+            
+            # Filter out expired sessions
+            valid_sessions = []
+            for session in sessions:
+                if self._is_session_valid(session):
+                    valid_sessions.append(session)
+                else:
+                    # Clean up expired session
+                    await self.delete_session(session["session_id"])
+            
+            return valid_sessions
+            
+        except Exception as e:
+            logger.error(f"Failed to get user sessions for {user_id}: {e}")
+            return []
+    
+    async def get_platform_sessions(self, platform: str) -> List[dict]:
+        """Get all active sessions for a platform"""
+        try:
+            cursor = self.db.sessions.find({
+                "platform": platform,
+                "is_active": True,
+                "expires_at": {"$gt": datetime.utcnow()}
+            })
+            
+            sessions = await cursor.to_list(length=None)
+            return sessions
+            
+        except Exception as e:
+            logger.error(f"Failed to get platform sessions for {platform}: {e}")
+            return []
+    
+    async def extend_session(self, session_id: str, hours: int = 24) -> bool:
+        """Extend session expiration time"""
+        try:
+            new_expires_at = datetime.utcnow() + timedelta(hours=hours)
+            
+            result = await self.db.sessions.update_one(
+                {"session_id": session_id},
+                {"$set": {"expires_at": new_expires_at}}
+            )
+            
+            # Update memory cache
+            if session_id in self.active_sessions:
+                self.active_sessions[session_id]["expires_at"] = new_expires_at
+            
+            # Update Redis cache
+            if self.redis and session_id in self.active_sessions:
+                await self._cache_session(session_id, self.active_sessions[session_id])
+            
+            logger.info(f"Extended session {session_id} until {new_expires_at}")
+            return result.modified_count > 0
+            
+        except Exception as e:
+            logger.error(f"Failed to extend session {session_id}: {e}")
+            return False
+    
+    async def cleanup_expired_sessions(self) -> int:
+        """Clean up expired sessions"""
+        try:
+            current_time = datetime.utcnow()
+            
+            # Find expired sessions
+            cursor = self.db.sessions.find({
+                "$or": [
+                    {"expires_at": {"$lt": current_time}},
+                    {"is_active": False}
+                ]
+            })
+            
+            expired_sessions = await cursor.to_list(length=None)
+            
+            # Delete expired sessions
+            if expired_sessions:
+                session_ids = [session["session_id"] for session in expired_sessions]
+                
+                # Remove from database
+                result = await self.db.sessions.delete_many({
+                    "session_id": {"$in": session_ids}
+                })
+                
+                # Remove from memory cache
+                for session_id in session_ids:
+                    if session_id in self.active_sessions:
+                        del self.active_sessions[session_id]
+                
+                # Remove from Redis cache
+                if self.redis:
+                    for session_id in session_ids:
+                        await self.redis.delete(f"session:{session_id}")
+                
+                logger.info(f"Cleaned up {result.deleted_count} expired sessions")
+                return result.deleted_count
+            
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup expired sessions: {e}")
+            return 0
+    
+    def _is_session_valid(self, session_data: dict) -> bool:
+        """Check if session is valid (not expired and active)"""
+        if not session_data.get("is_active", False):
+            return False
+        
+        expires_at = session_data.get("expires_at")
+        if expires_at and expires_at < datetime.utcnow():
+            return False
+        
+        return True
+    
+    async def _cache_session(self, session_id: str, session_data: dict):
+        """Cache session data in Redis"""
+        try:
+            if self.redis:
+                # Encrypt session data
+                json_data = json.dumps(session_data, default=str)
+                encrypted_data = self.cipher.encrypt(json_data.encode())
+                
+                # Calculate TTL
+                expires_at = session_data.get("expires_at")
+                if expires_at:
+                    ttl = int((expires_at - datetime.utcnow()).total_seconds())
+                    ttl = max(ttl, 60)  # Minimum 1 minute
+                else:
+                    ttl = 86400  # Default 24 hours
+                
+                await self.redis.setex(
+                    f"session:{session_id}",
+                    ttl,
+                    encrypted_data
+                )
+        except Exception as e:
+            logger.error(f"Failed to cache session {session_id}: {e}")
+    
+    async def _get_cached_session(self, session_id: str) -> Optional[dict]:
+        """Get session data from Redis cache"""
+        try:
+            if self.redis:
+                cached_data = await self.redis.get(f"session:{session_id}")
+                if cached_data:
+                    # Decrypt session data
+                    decrypted_data = self.cipher.decrypt(cached_data)
+                    session_data = json.loads(decrypted_data.decode())
+                    
+                    # Convert datetime strings back to datetime objects
+                    for field in ["created_at", "expires_at", "last_activity"]:
+                        if field in session_data and isinstance(session_data[field], str):
+                            session_data[field] = datetime.fromisoformat(session_data[field])
+                    
+                    return session_data
+        except Exception as e:
+            logger.error(f"Failed to get cached session {session_id}: {e}")
+        
+        return None
+    
+    async def _periodic_cleanup(self):
+        """Periodic cleanup task for expired sessions"""
+        while True:
+            try:
+                await asyncio.sleep(self.cleanup_interval)
+                await self.cleanup_expired_sessions()
+            except Exception as e:
+                logger.error(f"Error in periodic cleanup: {e}")
+    
+    async def get_session_stats(self) -> Dict:
+        """Get session statistics"""
+        try:
+            pipeline = [
+                {
+                    "$group": {
+                        "_id": "$platform",
+                        "total_sessions": {"$sum": 1},
+                        "active_sessions": {
+                            "$sum": {
+                                "$cond": [
+                                    {"$and": [
+                                        {"$eq": ["$is_active", True]},
+                                        {"$gt": ["$expires_at", datetime.utcnow()]}
+                                    ]},
+                                    1,
+                                    0
+                                ]
+                            }
+                        },
+                        "logged_in_sessions": {
+                            "$sum": {
+                                "$cond": [
+                                    {"$eq": ["$is_logged_in", True]},
+                                    1,
+                                    0
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]
+            
+            cursor = self.db.sessions.aggregate(pipeline)
+            platform_stats = await cursor.to_list(length=None)
+            
+            # Get total counts
+            total_sessions = await self.db.sessions.count_documents({})
+            active_sessions = await self.db.sessions.count_documents({
+                "is_active": True,
+                "expires_at": {"$gt": datetime.utcnow()}
+            })
+            
+            return {
+                "total_sessions": total_sessions,
+                "active_sessions": active_sessions,
+                "memory_cached_sessions": len(self.active_sessions),
+                "platform_stats": {stat["_id"]: {
+                    "total": stat["total_sessions"],
+                    "active": stat["active_sessions"],
+                    "logged_in": stat["logged_in_sessions"]
+                } for stat in platform_stats}
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get session stats: {e}")
+            return {}
