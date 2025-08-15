@@ -1,6 +1,6 @@
 // API基础配置
 const BACKEND_API_URL = 'http://localhost:8081/api';
-const CRAWLER_API_URL = 'http://localhost:8001/api';
+const CRAWLER_API_URL = 'http://localhost:8001';
 
 // 创作者相关API
 export const creatorApi = {
@@ -328,7 +328,7 @@ export const crawlerApi = {
   // 任务管理相关API
   tasks: {
     create: async (data: { platform: string; creator_url: string; limit?: number }) => {
-      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks`, {
+      const response = await fetch(`${BACKEND_API_URL}/crawler/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -341,7 +341,7 @@ export const crawlerApi = {
     },
 
     list: async () => {
-      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks`);
+      const response = await fetch(`${BACKEND_API_URL}/crawler/tasks`);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to get crawler tasks: ${errorText}`);
@@ -350,7 +350,7 @@ export const crawlerApi = {
     },
 
     get: async (id: string) => {
-      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks/${id}`);
+      const response = await fetch(`${BACKEND_API_URL}/crawler/tasks/${id}`);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to get crawler task: ${errorText}`);
@@ -359,7 +359,7 @@ export const crawlerApi = {
     },
 
     updateStatus: async (id: string, data: { status: string; error?: string }) => {
-      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks/${id}/status`, {
+      const response = await fetch(`${BACKEND_API_URL}/crawler/tasks/${id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -378,7 +378,7 @@ export const crawlerApi = {
       const params = new URLSearchParams();
       if (taskId) params.append('task_id', taskId);
       
-      const response = await fetch(`${CRAWLER_API_URL}/crawler/contents?${params}`);
+      const response = await fetch(`${BACKEND_API_URL}/crawler/contents?${params}`);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to get crawler contents: ${errorText}`);

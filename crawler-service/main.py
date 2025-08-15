@@ -1971,7 +1971,11 @@ class UnifiedCrawlerService:
             return False
         
         # 检查是否为明显的错误页面
-        error_keywords = ['404', '403', '500', '错误', '异常', '无法访问', '页面不存在', 'not found', 'error']
+        error_keywords = [
+            '404', '403', '500', '错误', '异常', '无法访问', '页面不存在', 'not found', 'error',
+            '抱歉', '不存在', '该昵称目前不存在', '用户不存在', '内容不存在', '页面异常',
+            'sorry', 'does not exist', 'user not found', 'content not found'
+        ]
         title_lower = title.lower()
         content_lower = content.lower()
         

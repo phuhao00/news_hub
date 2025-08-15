@@ -15,7 +15,7 @@ import (
 	"newshub/models"
 )
 
-// GetPosts 获取帖子列表（从crawler_contents集合获取并转换）
+// GetPosts 获取帖子列表（从crawl_tasks和crawler_contents集合获取并转换）
 func GetPosts(c *gin.Context) {
 	var posts []models.Post
 
@@ -35,28 +35,61 @@ func GetPosts(c *gin.Context) {
 		}
 	}
 
-	// 构建查询条件
-	filter := bson.M{}
+	// 首先查询crawl_tasks获取已完成的任务
+	taskFilter := bson.M{
+		"status": "completed",
+	}
 	if platform != "" {
-		filter["platform"] = platform
+		taskFilter["platform"] = platform
 	}
 	if creatorID != "" {
-		// 对于crawler_contents，我们可能需要通过author字段匹配
-		// 这里暂时跳过creator_id过滤，因为crawler_contents没有creator_id字段
+		taskFilter["creator_url"] = creatorID
 	}
 
-	// 查询crawler_contents，按创建时间倒序
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(int64(limit))
-	cursor, err := config.GetDB().Collection("crawler_contents").Find(ctx, filter, opts)
+	// 查询已完成的爬取任务
+	taskOpts := options.Find().SetSort(bson.D{{Key: "completed_at", Value: -1}})
+	taskCursor, err := config.GetDB().Collection("crawler_tasks").Find(ctx, taskFilter, taskOpts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer cursor.Close(ctx)
+	defer taskCursor.Close(ctx)
+
+	var crawlTasks []models.CrawlerTask
+	if err := taskCursor.All(ctx, &crawlTasks); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 如果没有已完成的任务，返回空数组
+	if len(crawlTasks) == 0 {
+		c.JSON(http.StatusOK, []models.Post{})
+		return
+	}
+
+	// 收集所有任务ID
+	var taskIDs []primitive.ObjectID
+	for _, task := range crawlTasks {
+		taskIDs = append(taskIDs, task.ID)
+	}
+
+	// 根据任务ID查询crawler_contents
+	contentFilter := bson.M{
+		"task_id": bson.M{"$in": taskIDs},
+	}
+
+	// 查询crawler_contents，按创建时间倒序
+	contentOpts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(int64(limit))
+	contentCursor, err := config.GetDB().Collection("crawler_contents").Find(ctx, contentFilter, contentOpts)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer contentCursor.Close(ctx)
 
 	// 获取crawler_contents数据
 	var crawlerContents []models.CrawlerContent
-	if err := cursor.All(ctx, &crawlerContents); err != nil {
+	if err := contentCursor.All(ctx, &crawlerContents); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
