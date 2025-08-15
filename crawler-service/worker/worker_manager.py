@@ -191,7 +191,7 @@ class CrawlWorker:
     async def _get_next_task(self) -> Optional[CrawlTask]:
         """从Go后端获取下一个任务"""
         try:
-            url = f"{self.config.backend_api_url}/api/v1/tasks/next"
+            url = f"{self.config.backend_api_url}/api/tasks/next"
             params = {'worker_id': self.worker_id}
             
             response = requests.get(url, params=params, timeout=self.config.api_timeout)
@@ -304,7 +304,7 @@ class CrawlWorker:
     async def _update_task_status(self, task_id: str, status: str):
         """更新任务状态"""
         try:
-            url = f"{self.config.backend_api_url}/api/v1/tasks/{task_id}/status"
+            url = f"{self.config.backend_api_url}/api/tasks/{task_id}/status"
             data = {
                 'status': status,
                 'worker_id': self.worker_id
@@ -323,7 +323,7 @@ class CrawlWorker:
     async def _send_result(self, result: CrawlResult):
         """发送爬取结果到Go后端"""
         try:
-            url = f"{self.config.backend_api_url}/api/v1/tasks/{result.task_id}/status"
+            url = f"{self.config.backend_api_url}/api/tasks/{result.task_id}/status"
             
             if result.success:
                 data = {

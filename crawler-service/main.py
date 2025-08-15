@@ -4915,6 +4915,32 @@ async def get_service_status():
         ]
     }
 
+@app.get("/crawler/status")
+async def get_crawler_status():
+    """获取爬虫服务状态 - 兼容前端API调用"""
+    mcp_status = "enabled" if crawler_service.mcp_enabled else "disabled"
+    return {
+        "service": "unified-crawler",
+        "version": "2.0.0",
+        "status": "running",
+        "initialized": crawler_service.session is not None,
+        "mcp_enabled": crawler_service.mcp_enabled,
+        "uptime": datetime.now(),
+        "endpoints": [
+            "/crawl - 通用URL爬取",
+            "/crawl/batch - 批量URL爬取",
+            "/crawl/platform - 平台特定爬取",
+            "/mcp/crawl - MCP单个URL爬取",
+            "/mcp/crawl/batch - MCP批量URL爬取",
+            "/mcp/status - MCP服务状态",
+            "/platforms - 支持的平台列表",
+            "/health - 健康检查",
+            "/worker/health - Worker健康检查",
+            "/worker/stats - Worker统计信息",
+            "/worker/restart - 重启所有Workers"
+        ]
+    }
+
 # ==================== Worker模式API接口 ====================
 
 # 全局Worker管理器实例

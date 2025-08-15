@@ -45,8 +45,8 @@ init-db-go:
 # 启动MongoDB容器
 start-db:
 	@echo "启动MongoDB容器..."
-	@docker run -d --name newshub-mongodb -p 27015:27017 -v newshub_mongodb_data:/data/db mongo:latest || docker start newshub-mongodb
-	@echo "MongoDB已启动在端口 27015"
+	@docker run -d --name newshub-mongodb -p 27017:27017 -v newshub_mongodb_data:/data/db mongo:latest || docker start newshub-mongodb
+	@echo "MongoDB已启动在端口 27017"
 
 # 停止MongoDB容器
 stop-db:

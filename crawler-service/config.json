@@ -29,12 +29,12 @@
     }
   },
   "worker": {
-    "worker_count": 3,
+    "num_workers": 3,
     "max_concurrent_tasks": 5,
-    "task_timeout": 60,
+    "task_timeout": 300,
     "heartbeat_interval": 30,
-    "queue_check_interval": 1,
-    "task_queue_key": "crawl_tasks"
+    "queue_check_interval": 5,
+    "task_queue_key": "crawler:tasks"
   },
   "redis": {
     "host": "localhost",
@@ -42,8 +42,8 @@
     "db": 0,
     "password": null
   },
-  "backend": {
-    "api_url": "http://localhost:8081",
-    "api_timeout": 10
+  "backend_api": {
+    "url": "http://localhost:8081",
+    "timeout": 30
   }
 }

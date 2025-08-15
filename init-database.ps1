@@ -24,7 +24,7 @@ function Start-MongoContainer {
         docker start newshub-mongodb
     } else {
         Write-Host "Creating and starting MongoDB container..." -ForegroundColor Blue
-        docker run -d --name newshub-mongodb -p 27015:27017 -v "${PWD}/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js" mongo:latest
+        docker run -d --name newshub-mongodb -p 27017:27017 -v "${PWD}/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js" mongo:latest
     }
     
     # Wait for MongoDB to start
@@ -146,7 +146,7 @@ function Main {
     if (Initialize-Database) {
         Show-DatabaseStatus
         Write-Host "\nDatabase initialization completed successfully!" -ForegroundColor Green
-        Write-Host "MongoDB connection address: mongodb://localhost:27015" -ForegroundColor Cyan
+        Write-Host "MongoDB connection address: mongodb://localhost:27017" -ForegroundColor Cyan
         Write-Host "Database name: newshub" -ForegroundColor Cyan
     } else {
         Write-Host "Database initialization failed" -ForegroundColor Red

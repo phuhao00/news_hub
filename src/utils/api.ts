@@ -1,9 +1,11 @@
-const API_BASE_URL = 'http://localhost:8001/api';
+// API基础配置
+const BACKEND_API_URL = 'http://localhost:8081/api';
+const CRAWLER_API_URL = 'http://localhost:8001/api';
 
 // 创作者相关API
 export const creatorApi = {
   create: async (data: { username: string; platform: string }) => {
-    const response = await fetch(`${API_BASE_URL}/creators`, {
+    const response = await fetch(`${BACKEND_API_URL}/creators`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -13,13 +15,13 @@ export const creatorApi = {
   },
 
   list: async () => {
-    const response = await fetch(`${API_BASE_URL}/creators`);
+    const response = await fetch(`${BACKEND_API_URL}/creators`);
     if (!response.ok) throw new Error('Failed to fetch creators');
     return response.json();
   },
 
   delete: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/creators/${id}`, {
+    const response = await fetch(`${BACKEND_API_URL}/creators/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete creator');
@@ -30,7 +32,7 @@ export const creatorApi = {
 // AI助手相关API
 export const aiApi = {
   chat: async (data: { message: string; conversationId?: string }) => {
-    const response = await fetch(`${API_BASE_URL}/ai/chat`, {
+    const response = await fetch(`${CRAWLER_API_URL}/ai/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -40,7 +42,7 @@ export const aiApi = {
   },
 
   generateContent: async (data: { prompt: string; type: string; context?: any }) => {
-    const response = await fetch(`${API_BASE_URL}/ai/generate`, {
+    const response = await fetch(`${CRAWLER_API_URL}/ai/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -50,7 +52,7 @@ export const aiApi = {
   },
 
   optimizeContent: async (data: { content: string; platform: string; goal: string }) => {
-    const response = await fetch(`${API_BASE_URL}/ai/optimize`, {
+    const response = await fetch(`${CRAWLER_API_URL}/ai/optimize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -60,7 +62,7 @@ export const aiApi = {
   },
 
   analyzeSentiment: async (content: string) => {
-    const response = await fetch(`${API_BASE_URL}/ai/sentiment`, {
+    const response = await fetch(`${CRAWLER_API_URL}/ai/sentiment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
@@ -70,7 +72,7 @@ export const aiApi = {
   },
 
   generateTags: async (content: string) => {
-    const response = await fetch(`${API_BASE_URL}/ai/tags`, {
+    const response = await fetch(`${CRAWLER_API_URL}/ai/tags`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
@@ -80,7 +82,7 @@ export const aiApi = {
   },
 
   predictPerformance: async (data: { content: string; platform: string; timing: string }) => {
-    const response = await fetch(`${API_BASE_URL}/ai/predict`, {
+    const response = await fetch(`${CRAWLER_API_URL}/ai/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -90,13 +92,13 @@ export const aiApi = {
   },
 
   conversations: async () => {
-    const response = await fetch(`${API_BASE_URL}/ai/conversations`);
+    const response = await fetch(`${CRAWLER_API_URL}/ai/conversations`);
     if (!response.ok) throw new Error('Failed to fetch conversations');
     return response.json();
   },
 
   deleteConversation: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/ai/conversations/${id}`, {
+    const response = await fetch(`${CRAWLER_API_URL}/ai/conversations/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete conversation');
@@ -104,7 +106,7 @@ export const aiApi = {
   },
 
   getInsights: async () => {
-    const response = await fetch(`${API_BASE_URL}/ai/insights`);
+    const response = await fetch(`${CRAWLER_API_URL}/ai/insights`);
     if (!response.ok) throw new Error('Failed to get insights');
     return response.json();
   },
@@ -116,13 +118,13 @@ export const analyticsApi = {
     const searchParams = new URLSearchParams();
     if (timeRange) searchParams.append('timeRange', timeRange);
     
-    const response = await fetch(`${API_BASE_URL}/analytics/overview?${searchParams}`);
+    const response = await fetch(`${BACKEND_API_URL}/analytics/overview?${searchParams}`);
     if (!response.ok) throw new Error('Failed to fetch analytics overview');
     return response.json();
   },
 
   overview: async () => {
-    const response = await fetch(`${API_BASE_URL}/analytics/overview`);
+    const response = await fetch(`${BACKEND_API_URL}/analytics/overview`);
     if (!response.ok) throw new Error('Failed to fetch analytics overview');
     return response.json();
   },
@@ -132,7 +134,7 @@ export const analyticsApi = {
     if (params?.period) searchParams.append('period', params.period);
     if (params?.platform) searchParams.append('platform', params.platform);
     
-    const response = await fetch(`${API_BASE_URL}/analytics/performance?${searchParams}`);
+    const response = await fetch(`${BACKEND_API_URL}/analytics/performance?${searchParams}`);
     if (!response.ok) throw new Error('Failed to fetch performance analytics');
     return response.json();
   },
@@ -142,7 +144,7 @@ export const analyticsApi = {
     if (params?.period) searchParams.append('period', params.period);
     if (params?.contentType) searchParams.append('contentType', params.contentType);
     
-    const response = await fetch(`${API_BASE_URL}/analytics/engagement?${searchParams}`);
+    const response = await fetch(`${BACKEND_API_URL}/analytics/engagement?${searchParams}`);
     if (!response.ok) throw new Error('Failed to fetch engagement analytics');
     return response.json();
   },
@@ -151,13 +153,13 @@ export const analyticsApi = {
 // 自动化相关API
 export const automationApi = {
   list: async () => {
-    const response = await fetch(`${API_BASE_URL}/automation/workflows`);
+    const response = await fetch(`${BACKEND_API_URL}/automation/workflows`);
     if (!response.ok) throw new Error('Failed to fetch workflows');
     return response.json();
   },
 
   create: async (data: { name: string; description: string; triggers: any[]; actions: any[] }) => {
-    const response = await fetch(`${API_BASE_URL}/automation/workflows`, {
+    const response = await fetch(`${BACKEND_API_URL}/automation/workflows`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -167,7 +169,7 @@ export const automationApi = {
   },
 
   update: async (id: string, data: { name?: string; description?: string; triggers?: any[]; actions?: any[]; enabled?: boolean }) => {
-    const response = await fetch(`${API_BASE_URL}/automation/workflows/${id}`, {
+    const response = await fetch(`${BACKEND_API_URL}/automation/workflows/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -177,7 +179,7 @@ export const automationApi = {
   },
 
   delete: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/automation/workflows/${id}`, {
+    const response = await fetch(`${BACKEND_API_URL}/automation/workflows/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete workflow');
@@ -185,7 +187,7 @@ export const automationApi = {
   },
 
   execute: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/automation/workflows/${id}/execute`, {
+    const response = await fetch(`${BACKEND_API_URL}/automation/workflows/${id}/execute`, {
       method: 'POST',
     });
     if (!response.ok) throw new Error('Failed to execute workflow');
@@ -194,13 +196,13 @@ export const automationApi = {
 
   workflows: {
     list: async () => {
-      const response = await fetch(`${API_BASE_URL}/automation/workflows`);
+      const response = await fetch(`${BACKEND_API_URL}/automation/workflows`);
       if (!response.ok) throw new Error('Failed to fetch workflows');
       return response.json();
     },
 
     create: async (data: { name: string; description: string; triggers: any[]; actions: any[] }) => {
-      const response = await fetch(`${API_BASE_URL}/automation/workflows`, {
+      const response = await fetch(`${BACKEND_API_URL}/automation/workflows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -210,7 +212,7 @@ export const automationApi = {
     },
 
     update: async (id: string, data: { name?: string; description?: string; triggers?: any[]; actions?: any[]; active?: boolean }) => {
-      const response = await fetch(`${API_BASE_URL}/automation/workflows/${id}`, {
+      const response = await fetch(`${BACKEND_API_URL}/automation/workflows/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -220,7 +222,7 @@ export const automationApi = {
     },
 
     delete: async (id: string) => {
-      const response = await fetch(`${API_BASE_URL}/automation/workflows/${id}`, {
+      const response = await fetch(`${BACKEND_API_URL}/automation/workflows/${id}`, {
         method: 'DELETE',
       });
       if (!response.ok) throw new Error('Failed to delete workflow');
@@ -228,7 +230,7 @@ export const automationApi = {
     },
 
     execute: async (id: string) => {
-      const response = await fetch(`${API_BASE_URL}/automation/workflows/${id}/execute`, {
+      const response = await fetch(`${BACKEND_API_URL}/automation/workflows/${id}/execute`, {
         method: 'POST',
       });
       if (!response.ok) throw new Error('Failed to execute workflow');
@@ -237,7 +239,7 @@ export const automationApi = {
   },
 
   templates: async () => {
-    const response = await fetch(`${API_BASE_URL}/automation/templates`);
+    const response = await fetch(`${BACKEND_API_URL}/automation/templates`);
     if (!response.ok) throw new Error('Failed to fetch workflow templates');
     return response.json();
   },
@@ -246,7 +248,7 @@ export const automationApi = {
     const searchParams = new URLSearchParams();
     if (workflowId) searchParams.append('workflowId', workflowId);
     
-    const response = await fetch(`${API_BASE_URL}/automation/executions?${searchParams}`);
+    const response = await fetch(`${BACKEND_API_URL}/automation/executions?${searchParams}`);
     if (!response.ok) throw new Error('Failed to fetch workflow executions');
     return response.json();
   },
@@ -255,7 +257,7 @@ export const automationApi = {
 // 视频生成相关API
 export const videoApi = {
   generate: async (data: { postIds: string[]; style: string; duration: number }) => {
-    const response = await fetch(`${API_BASE_URL}/videos/generate`, {
+    const response = await fetch(`${BACKEND_API_URL}/videos/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -265,7 +267,7 @@ export const videoApi = {
   },
 
   list: async () => {
-    const response = await fetch(`${API_BASE_URL}/videos`);
+    const response = await fetch(`${BACKEND_API_URL}/videos`);
     if (!response.ok) throw new Error('Failed to fetch videos');
     return response.json();
   },
@@ -274,7 +276,7 @@ export const videoApi = {
 // 发布任务相关API
 export const publishApi = {
   create: async (data: { videoId: string; platforms: string[]; description: string }) => {
-    const response = await fetch(`${API_BASE_URL}/publish`, {
+    const response = await fetch(`${BACKEND_API_URL}/publish`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -284,7 +286,7 @@ export const publishApi = {
   },
 
   list: async () => {
-    const response = await fetch(`${API_BASE_URL}/publish/tasks`);
+    const response = await fetch(`${BACKEND_API_URL}/publish/tasks`);
     if (!response.ok) throw new Error('Failed to fetch publish tasks');
     return response.json();
   },
@@ -293,7 +295,7 @@ export const publishApi = {
 // 爬虫相关API
 export const crawlerApi = {
   trigger: async (data: { platform: string; creator_url: string; limit?: number }) => {
-    const response = await fetch(`${API_BASE_URL}/crawler/trigger`, {
+    const response = await fetch(`${CRAWLER_API_URL}/crawler/trigger`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -306,7 +308,7 @@ export const crawlerApi = {
   },
 
   status: async () => {
-    const response = await fetch(`${API_BASE_URL}/crawler/status`);
+    const response = await fetch(`${CRAWLER_API_URL}/crawler/status`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to get crawler status: ${errorText}`);
@@ -315,7 +317,7 @@ export const crawlerApi = {
   },
 
   platforms: async () => {
-    const response = await fetch(`${API_BASE_URL}/crawler/platforms`);
+    const response = await fetch(`${CRAWLER_API_URL}/crawler/platforms`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to get crawler platforms: ${errorText}`);
@@ -326,7 +328,7 @@ export const crawlerApi = {
   // 任务管理相关API
   tasks: {
     create: async (data: { platform: string; creator_url: string; limit?: number }) => {
-      const response = await fetch(`${API_BASE_URL}/crawler/tasks`, {
+      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -339,7 +341,7 @@ export const crawlerApi = {
     },
 
     list: async () => {
-      const response = await fetch(`${API_BASE_URL}/crawler/tasks`);
+      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks`);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to get crawler tasks: ${errorText}`);
@@ -348,7 +350,7 @@ export const crawlerApi = {
     },
 
     get: async (id: string) => {
-      const response = await fetch(`${API_BASE_URL}/crawler/tasks/${id}`);
+      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks/${id}`);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to get crawler task: ${errorText}`);
@@ -357,7 +359,7 @@ export const crawlerApi = {
     },
 
     updateStatus: async (id: string, data: { status: string; error?: string }) => {
-      const response = await fetch(`${API_BASE_URL}/crawler/tasks/${id}/status`, {
+      const response = await fetch(`${CRAWLER_API_URL}/crawler/tasks/${id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -376,7 +378,7 @@ export const crawlerApi = {
       const params = new URLSearchParams();
       if (taskId) params.append('task_id', taskId);
       
-      const response = await fetch(`${API_BASE_URL}/crawler/contents?${params}`);
+      const response = await fetch(`${CRAWLER_API_URL}/crawler/contents?${params}`);
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Failed to get crawler contents: ${errorText}`);
@@ -394,19 +396,19 @@ export const postApi = {
     if (params?.platform) searchParams.append('platform', params.platform);
     if (params?.limit) searchParams.append('limit', params.limit.toString());
     
-    const response = await fetch(`${API_BASE_URL}/posts?${searchParams}`);
+    const response = await fetch(`${BACKEND_API_URL}/posts?${searchParams}`);
     if (!response.ok) throw new Error('Failed to fetch posts');
     return response.json();
   },
 
   get: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/posts/${id}`);
+    const response = await fetch(`${BACKEND_API_URL}/posts/${id}`);
     if (!response.ok) throw new Error('Failed to fetch post');
     return response.json();
   },
 
   delete: async (id: string) => {
-    const response = await fetch(`${API_BASE_URL}/posts/${id}`, {
+    const response = await fetch(`${BACKEND_API_URL}/posts/${id}`, {
       method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete post');

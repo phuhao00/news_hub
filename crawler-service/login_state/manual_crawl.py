@@ -231,7 +231,7 @@ class ManualCrawlService:
         try:
             # Validate session
             session = await self.session_manager.validate_session(request.session_id)
-            if not session or session.user_id != user_id:
+            if not session or session.get('user_id') != user_id:
                 raise ValueError("Invalid session")
             
             # Create task document
@@ -239,12 +239,11 @@ class ManualCrawlService:
                 task_id=f"crawl_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{user_id[:8]}",
                 session_id=request.session_id,
                 user_id=user_id,
-                platform=request.platform,
+                platform=session.get('platform'),  # 从session中获取platform
                 url=str(request.url),
                 status=CrawlTaskStatus.PENDING,
-                config=request.config or {},
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
+                request_data=request.dict(),  # 保存请求数据
+                created_at=datetime.now(timezone.utc)
             )
             
             # Insert task
@@ -264,6 +263,8 @@ class ManualCrawlService:
             task_doc = await self.crawl_tasks.find_one({"task_id": task_id})
             if not task_doc:
                 raise ValueError(f"Task {task_id} not found")
+            
+            logger.info(f"🚀 开始执行爬取任务 - 任务ID: {task_id}, URL: {task_doc['url']}, 平台: {task_doc['platform']}")
             
             # Update task status
             await self.crawl_tasks.update_one(
@@ -389,11 +390,15 @@ class ManualCrawlService:
         start_time = time.time()
         
         try:
+            logger.info(f"📄 开始爬取页面内容 - URL: {url}, 平台: {platform}")
+            
             # 检查登录状态
             login_status = await self._check_login_status(page, platform)
             if not login_status:
                 logger.warning(f"检测到未登录状态，尝试自动重新登录: {url}")
                 await self._attempt_auto_login(page, platform)
+            else:
+                logger.info(f"✅ 登录状态验证通过 - URL: {url}")
             
             # Get platform config
             config = self.platform_configs.get(platform)
@@ -407,8 +412,9 @@ class ManualCrawlService:
                 config = CrawlConfig(**config_dict)
             
             # Get HTML content from the Playwright page
-            logger.info(f"Using Playwright HTML content for {url}")
+            logger.info(f"📥 获取页面HTML内容 - URL: {url}")
             html_content = await page.content()
+            logger.info(f"📊 HTML内容获取完成 - 大小: {len(html_content)} bytes, URL: {url}")
             
             # 检查内容长度并截断
             if len(html_content) > self.performance_config["max_content_length"]:
@@ -422,6 +428,7 @@ class ManualCrawlService:
                 html_content = await page.content()
             
             # Try Crawl4AI processing first, fallback to basic processing
+            logger.info(f"🤖 尝试使用Crawl4AI智能提取 - URL: {url}")
             try:
                 crawl4ai_result = await asyncio.wait_for(
                     self._process_html_with_crawl4ai(html_content, url, platform),
@@ -431,18 +438,19 @@ class ManualCrawlService:
                     # Convert Crawl4AI result to CrawlResult format
                     result = self._convert_crawl4ai_result(crawl4ai_result, url)
                     processing_time = time.time() - start_time
-                    logger.info(f"页面处理完成 {url} - 耗时: {processing_time:.2f}s (Crawl4AI)")
+                    logger.info(f"✅ Crawl4AI智能提取成功 - URL: {url}, 耗时: {processing_time:.2f}s, 内容长度: {len(result.content) if result.content else 0} 字符")
                     return result
             except asyncio.TimeoutError:
-                logger.warning(f"Crawl4AI处理超时，回退到基础处理: {url}")
+                logger.warning(f"⏰ Crawl4AI处理超时，回退到基础处理: {url}")
             except Exception as e:
                 error_type = self._classify_error(str(e))
-                logger.warning(f"Crawl4AI处理失败 ({error_type})，回退到基础处理: {e}")
+                logger.warning(f"❌ Crawl4AI处理失败 ({error_type})，回退到基础处理: {e}")
             
             # Fallback to basic HTML processing
+            logger.info(f"🔧 使用基础HTML处理方法 - URL: {url}")
             result = await self._process_html_content(html_content, url, platform, config)
             processing_time = time.time() - start_time
-            logger.info(f"页面处理完成 {url} - 耗时: {processing_time:.2f}s (基础处理)")
+            logger.info(f"✅ 基础处理完成 - URL: {url}, 耗时: {processing_time:.2f}s, 内容长度: {len(result.content) if result.content else 0} 字符")
             return result
             
         except Exception as e:
@@ -482,6 +490,7 @@ class ManualCrawlService:
         config: CrawlConfig
     ) -> CrawlResult:
         """Process HTML content directly without network requests"""
+        start_time = time.time()  # 添加start_time变量定义
         try:
             logger.info(f"Processing HTML content for {url} (platform: {platform.value})")
             
@@ -1577,6 +1586,101 @@ class ManualCrawlService:
             "platform_distribution": platform_counts,
             "generated_at": datetime.now(timezone.utc).isoformat()
         }
+    
+    def _classify_error(self, error_message: str) -> str:
+        """错误分类"""
+        error_message_lower = error_message.lower()
+        
+        for error_type, patterns in self.error_patterns.items():
+            for pattern in patterns:
+                if pattern.lower() in error_message_lower:
+                    return error_type
+        
+        return "unknown"
+    
+
+    
+    async def _check_login_status(self, page: Page, platform: PlatformType) -> bool:
+        """检查登录状态"""
+        try:
+            if platform not in self.login_indicators:
+                return True  # 未配置检测规则，假设已登录
+            
+            indicators = self.login_indicators[platform]
+            
+            # 检查登录状态指示器
+            for selector in indicators["logged_in_selectors"]:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        logger.debug(f"找到登录状态指示器: {selector}")
+                        return True
+                except Exception:
+                    continue
+            
+            # 检查是否需要登录
+            for selector in indicators["login_required_selectors"]:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        logger.warning(f"找到登录要求指示器: {selector}")
+                        return False
+                except Exception:
+                    continue
+            
+            # 默认假设已登录
+            return True
+            
+        except Exception as e:
+            logger.error(f"检查登录状态失败: {e}")
+            return True  # 出错时假设已登录，避免阻塞
+    
+    async def _detect_anti_crawler(self, html_content: str, page: Page) -> bool:
+        """检测反爬虫机制"""
+        try:
+            # 检查HTML内容中的反爬虫关键词
+            anti_crawler_keywords = [
+                "captcha", "verification", "robot", "blocked", 
+                "challenge", "请完成验证", "人机验证", "滑动验证"
+            ]
+            
+            html_lower = html_content.lower()
+            for keyword in anti_crawler_keywords:
+                if keyword in html_lower:
+                    logger.warning(f"在HTML中检测到反爬虫关键词: {keyword}")
+                    return True
+            
+            # 检查页面标题
+            try:
+                title = await page.title()
+                title_lower = title.lower()
+                for keyword in anti_crawler_keywords:
+                    if keyword in title_lower:
+                        logger.warning(f"在页面标题中检测到反爬虫关键词: {keyword}")
+                        return True
+            except Exception:
+                pass
+            
+            # 检查特定的反爬虫元素
+            anti_crawler_selectors = [
+                ".captcha", "#captcha", ".verification", ".challenge",
+                "[class*='captcha']", "[id*='captcha']", "[class*='verify']"
+            ]
+            
+            for selector in anti_crawler_selectors:
+                try:
+                    element = await page.query_selector(selector)
+                    if element:
+                        logger.warning(f"检测到反爬虫元素: {selector}")
+                        return True
+                except Exception:
+                    continue
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"反爬虫检测失败: {e}")
+            return False
 
 
 class ContinuousCrawlService:
@@ -1614,7 +1718,7 @@ class ContinuousCrawlService:
         try:
             # 验证会话
             session = await self.session_manager.validate_session(session_id)
-            if not session or session.user_id != user_id:
+            if not session or session.get('user_id') != user_id:
                 raise ValueError("Invalid session")
             
             # 使用默认配置
@@ -1727,10 +1831,15 @@ class ContinuousCrawlService:
                 # 检查是否到了爬取时间
                 now = datetime.now(timezone.utc)
                 next_crawl_at = task_doc.get("next_crawl_at")
-                if next_crawl_at and now < next_crawl_at:
-                    sleep_time = (next_crawl_at - now).total_seconds()
-                    await asyncio.sleep(min(sleep_time, 5))  # 最多睡眠5秒
-                    continue
+                if next_crawl_at:
+                    # 确保 next_crawl_at 是带时区的 datetime
+                    if next_crawl_at.tzinfo is None:
+                        next_crawl_at = next_crawl_at.replace(tzinfo=timezone.utc)
+                    
+                    if now < next_crawl_at:
+                        sleep_time = (next_crawl_at - now).total_seconds()
+                        await asyncio.sleep(min(sleep_time, 5))  # 最多睡眠5秒
+                        continue
                 
                 # 检查页面停留状态
                 if not await self._check_page_stay(task_doc):

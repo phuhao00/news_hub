@@ -26,7 +26,8 @@ class DatabaseManager(LoggerMixin):
             "browser_instances": db.browser_instances,
             "cookie_data": db.cookie_data,
             "crawl_tasks": db.crawl_tasks,
-            "platform_configs": db.platform_configs
+            "platform_configs": db.platform_configs,
+            "continuous_crawl_tasks": db.continuous_crawl_tasks
         }
     
     async def initialize_database(self) -> bool:
@@ -102,19 +103,33 @@ class DatabaseManager(LoggerMixin):
             raise
     
     async def _verify_database_setup(self):
-        """Verify database setup is correct"""
+        """Verify database setup is correct and create missing collections"""
         try:
             # Check collections exist
             collection_names = await self.db.list_collection_names()
             
             for collection_name in self.collections.keys():
                 if collection_name not in collection_names:
-                    logger.warning(f"Collection '{collection_name}' not found")
+                    logger.warning(f"Collection '{collection_name}' not found, creating...")
+                    try:
+                        # Create the collection by inserting and immediately removing a dummy document
+                        collection = self.collections[collection_name]
+                        dummy_doc = {"_temp": True}
+                        result = await collection.insert_one(dummy_doc)
+                        await collection.delete_one({"_id": result.inserted_id})
+                        logger.info(f"Successfully created collection '{collection_name}'")
+                    except Exception as create_error:
+                        logger.error(f"Failed to create collection '{collection_name}': {create_error}")
+                        # Continue with other collections even if one fails
+                        continue
                 else:
                     # Check indexes
-                    collection = self.collections[collection_name]
-                    indexes = await collection.list_indexes().to_list(length=None)
-                    logger.info(f"Collection '{collection_name}' has {len(indexes)} indexes")
+                    try:
+                        collection = self.collections[collection_name]
+                        indexes = await collection.list_indexes().to_list(length=None)
+                        logger.info(f"Collection '{collection_name}' has {len(indexes)} indexes")
+                    except Exception as index_error:
+                        logger.warning(f"Failed to check indexes for collection '{collection_name}': {index_error}")
             
             # Check platform configs
             platform_count = await self.collections["platform_configs"].count_documents({})

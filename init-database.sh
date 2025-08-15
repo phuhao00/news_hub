@@ -44,8 +44,8 @@ start_mongo_container() {
     else
         echo -e "${BLUE}创建新的MongoDB容器...${NC}"
         docker run -d \
-            --name newshub-mongodb \
-            -p 27015:27017 \
+        --name newshub-mongodb \
+        -p 27017:27017 \
             -v newshub_mongodb_data:/data/db \
             -v "$(pwd)/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro" \
             mongo:latest

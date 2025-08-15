@@ -1,0 +1,16 @@
+{
+  "timestamp": "2025-08-15T18:52:19.877218",
+  "issues": [
+    "集合 continuous_tasks 不存在",
+    "最近24小时没有创建爬取任务",
+    "无法创建测试任务: HTTP 400",
+    "没有活跃的Worker线程",
+    "MCP服务可能没有正常触发爬取任务"
+  ],
+  "recommendations": [
+    "检查MCP服务是否正常触发爬取任务",
+    "检查Worker管理器是否正常启动",
+    "检查MCP浏览器集成和页面导航监听"
+  ],
+  "status": "issues_found"
+}

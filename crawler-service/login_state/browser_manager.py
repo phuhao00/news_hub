@@ -192,8 +192,16 @@ class BrowserInstanceManager(LoggerMixin):
         asyncio.create_task(self._periodic_crawled_urls_cleanup())
         
         # Initialize continuous crawl service
-        from .manual_crawl import ContinuousCrawlService, ContinuousTaskStatus
+        from .manual_crawl import ContinuousCrawlService, ContinuousTaskStatus, ManualCrawlService
         self.continuous_crawl_service = ContinuousCrawlService(
+            db=self.db,
+            session_manager=self.session_manager,
+            browser_manager=self,
+            cookie_store=self.cookie_store
+        )
+        
+        # Initialize manual crawl service for immediate crawling
+        self.manual_crawl_service = ManualCrawlService(
             db=self.db,
             session_manager=self.session_manager,
             browser_manager=self,
@@ -3225,19 +3233,31 @@ class BrowserInstanceManager(LoggerMixin):
                         f"Interval: {config['crawl_interval']}s | Max crawls: {config['max_crawls']} | "
                         f"Duration: {config_creation_duration:.3f}s")
             
+            # Get session data to extract user_id
+            session_data = await self.session_manager.validate_session(session_id)
+            if not session_data:
+                logger.error(f"[CONTINUOUS-{continuous_id}] Invalid session: {session_id}")
+                return
+            
+            user_id = session_data.get("user_id")
+            if not user_id:
+                logger.error(f"[CONTINUOUS-{continuous_id}] No user_id found in session: {session_id}")
+                return
+            
             # Start continuous crawl task
             task_start_time = time.time()
             task_result = await self.continuous_crawl_service.start_continuous_crawl(
+                session_id=session_id,
+                user_id=user_id,  # Use actual user_id from session data
                 url=url,
                 platform=platform,
-                session_id=session_id,
-                instance_id=instance_id,
                 config=config
             )
             task_duration = time.time() - task_start_time
             
-            if task_result and task_result.get("success"):
-                task_id = task_result.get("task_id")
+            if task_result:
+                # task_result is the task_id string returned by start_continuous_crawl
+                task_id = task_result
                 total_duration = time.time() - start_time
                 
                 logger.info(f"[CONTINUOUS-{continuous_id}] Continuous crawl task started successfully | "
@@ -3245,13 +3265,11 @@ class BrowserInstanceManager(LoggerMixin):
                            f"Total: {total_duration:.3f}s | Config: interval={config['crawl_interval']}s, "
                            f"max_crawls={config['max_crawls']}, max_duration={config['max_duration']}s")
             else:
-                error_msg = task_result.get('error', 'Unknown error') if task_result else 'No task result'
                 total_duration = time.time() - start_time
                 
                 logger.warning(f"[CONTINUOUS-{continuous_id}] Failed to start continuous crawl | "
                               f"Instance: {instance_id} | Task creation: {task_duration:.3f}s | "
-                              f"Total: {total_duration:.3f}s | Error: {error_msg} | "
-                              f"Task result: {task_result}")
+                              f"Total: {total_duration:.3f}s | No task result returned")
                 
         except Exception as e:
             total_duration = time.time() - start_time
@@ -3274,8 +3292,9 @@ class BrowserInstanceManager(LoggerMixin):
             list_start_time = time.time()
             # Note: list_continuous_tasks doesn't support filters parameter
             # We need to get all tasks and filter them manually
+            # For stop operations, we can use a generic user_id since we're filtering by instance_id
             all_tasks = await self.continuous_crawl_service.list_continuous_tasks(
-                user_id="system",  # Use system user for instance-level operations
+                user_id="system",  # Use system user for instance-level operations (stop operations)
                 status=self.ContinuousTaskStatus.RUNNING,
                 limit=1000  # Get a large number to ensure we get all running tasks
             )
@@ -4956,7 +4975,7 @@ class BrowserInstanceManager(LoggerMixin):
             
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{go_backend_url}/api/v1/tasks/create",
+                    f"{go_backend_url}/api/tasks/create",
                     json=task_payload,
                     headers={"Content-Type": "application/json"},
                     timeout=aiohttp.ClientTimeout(total=10)
@@ -5117,18 +5136,38 @@ class BrowserInstanceManager(LoggerMixin):
             if current_url == url:
                 logger.info(f"[REALTIME-{trigger_id}] Current page matches target URL, executing immediate crawl")
                 
-                # 立即执行爬取
-                result = await self.manual_crawl_service.execute_crawl_task({
-                    'url': url,
-                    'platform': platform,
-                    'session_id': session_id,
-                    'instance_id': instance_id,
-                    'priority': 'high',
-                    'trigger_type': 'realtime_immediate',
-                    'trigger_id': trigger_id
-                })
-                
-                return result and result.get('success', False)
+                # 先创建爬取任务获取task_id
+                from .manual_crawl import ManualCrawlRequest, PlatformType
+                try:
+                    # 创建爬取请求
+                    crawl_request = ManualCrawlRequest(
+                        session_id=session_id,
+                        url=url,
+                        platform=PlatformType(platform),
+                        config={
+                            'priority': 'high',
+                            'trigger_type': 'realtime_immediate',
+                            'trigger_id': trigger_id
+                        }
+                    )
+                    
+                    # 创建任务获取task_id
+                    task_id = await self.manual_crawl_service.create_crawl_task(
+                        crawl_request, 
+                        f"browser_instance_{instance_id}"
+                    )
+                    
+                    logger.info(f"[REALTIME-{trigger_id}] Created crawl task: {task_id}")
+                    
+                    # 立即执行爬取任务
+                    result = await self.manual_crawl_service.execute_crawl_task(task_id)
+                    
+                    logger.info(f"[REALTIME-{trigger_id}] Immediate crawl completed: {result.success}")
+                    return result.success
+                    
+                except Exception as crawl_error:
+                    logger.error(f"[REALTIME-{trigger_id}] Failed to create/execute crawl task: {crawl_error}")
+                    return False
             else:
                 logger.debug(f"[REALTIME-{trigger_id}] Current page URL mismatch | Current: {current_url} | Target: {url}")
                 return False
@@ -5193,13 +5232,30 @@ class BrowserInstanceManager(LoggerMixin):
         except Exception as e:
             logger.error(f"Error handling page closure: {e}")
     
+    def _detect_platform_from_url(self, url: str) -> str:
+        """从URL检测平台类型"""
+        platform_patterns = {
+            'xiaohongshu': ['xiaohongshu.com', 'xhslink.com'],
+            'weibo': ['weibo.com', 'weibo.cn'],
+            'douyin': ['douyin.com', 'iesdouyin.com'],
+            'bilibili': ['bilibili.com', 'b23.tv'],
+            'twitter': ['twitter.com', 'x.com'],
+            'instagram': ['instagram.com']
+        }
+        
+        for platform, patterns in platform_patterns.items():
+            if any(pattern in url for pattern in patterns):
+                return platform
+        
+        return 'general'
+    
     async def _wait_for_page_stability(self, page: Page, url: str, max_wait_time: int = 15) -> bool:
-        """Enhanced page stability detection with dynamic content monitoring
+        """Optimized page stability detection with platform-specific strategies
         
         Args:
             page: The page object
             url: The current URL
-            max_wait_time: Maximum time to wait in seconds (increased default)
+            max_wait_time: Maximum time to wait in seconds
             
         Returns:
             bool: True if page is stable, False if timeout or error
@@ -5208,8 +5264,12 @@ class BrowserInstanceManager(LoggerMixin):
             import asyncio
             import hashlib
             
-            logger.debug(f"Enhanced page stability check starting: {url}")
+            logger.debug(f"Optimized page stability check starting: {url}")
             start_time = asyncio.get_event_loop().time()
+            
+            # Detect platform for specific strategies
+            platform = self._detect_platform_from_url(url)
+            logger.debug(f"Detected platform: {platform} for URL: {url}")
             
             # Phase 1: Wait for basic DOM content loaded
             try:
@@ -5217,19 +5277,24 @@ class BrowserInstanceManager(LoggerMixin):
                 logger.debug(f"DOM content loaded: {url}")
             except Exception as e:
                 logger.warning(f"Timeout waiting for DOM content loaded: {e}")
-                return False
+                # For dynamic platforms, be more lenient
+                if platform in ['xiaohongshu', 'douyin', 'weibo']:
+                    logger.info(f"Continuing despite DOM timeout for dynamic platform {platform}: {url}")
+                else:
+                    return False
             
-            # Phase 2: Wait for network idle (no requests for 500ms)
+            # Phase 2: Wait for network idle (more lenient for dynamic platforms)
+            network_idle_timeout = 3000 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 5000
             try:
-                await page.wait_for_load_state('networkidle', timeout=5000)  # 5 seconds max
+                await page.wait_for_load_state('networkidle', timeout=network_idle_timeout)
                 logger.debug(f"Network idle achieved: {url}")
             except Exception as e:
                 logger.debug(f"Network idle timeout (continuing): {e}")
             
-            # Phase 3: Enhanced stability checks with dynamic content detection
+            # Phase 3: Optimized stability checks with platform-specific tolerance
             stability_checks = 0
-            max_stability_checks = 4  # Increased for better accuracy
-            stability_interval = 1.5  # Slightly longer interval
+            max_stability_checks = 3 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 4
+            stability_interval = 1.0 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 1.5
             
             previous_content_hash = None
             previous_image_count = None
@@ -5304,8 +5369,9 @@ class BrowserInstanceManager(LoggerMixin):
                         logger.debug(f"Page still loading (readyState: {page_metrics['readyState']}): {url}")
                         continue
                     
-                    # Check for active loading indicators
-                    if page_metrics['loadingIndicators'] > 0 or page_metrics['ajaxIndicators'] > 0:
+                    # Check for active loading indicators (more lenient for dynamic platforms)
+                    loading_threshold = 2 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 0
+                    if page_metrics['loadingIndicators'] > loading_threshold or page_metrics['ajaxIndicators'] > loading_threshold:
                         logger.debug(f"Loading indicators detected ({page_metrics['loadingIndicators']} loading, {page_metrics['ajaxIndicators']} ajax): {url}")
                         stability_checks = 0  # Reset counter
                         continue
@@ -5315,9 +5381,11 @@ class BrowserInstanceManager(LoggerMixin):
                     image_count = page_metrics['imageCount']
                     element_count = page_metrics['totalElements']
                     
-                    # Check if content has meaningful data
-                    if not page_metrics['hasVisibleContent']:
-                        logger.debug(f"Insufficient visible content, waiting: {url}")
+                    # Check if content has meaningful data (more lenient for dynamic platforms)
+                    content_threshold = 20 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 50
+                    has_content = len(str(page_metrics['textContent']).strip()) > content_threshold
+                    if not has_content:
+                        logger.debug(f"Insufficient visible content (threshold: {content_threshold}), waiting: {url}")
                         continue
                     
                     # Compare with previous state
@@ -5338,17 +5406,22 @@ class BrowserInstanceManager(LoggerMixin):
                         stability_checks += 1
                         logger.debug(f"Page stable (check {stability_checks}/{max_stability_checks}): {url}")
                         
-                        # Additional check: ensure images are loaded
+                        # Additional check: ensure images are loaded (more lenient)
                         if image_count > 0:
                             image_load_ratio = page_metrics['loadedImages'] / image_count
-                            if image_load_ratio < 0.8:  # At least 80% of images should be loaded
-                                logger.debug(f"Images still loading ({page_metrics['loadedImages']}/{image_count}): {url}")
-                                stability_checks = max(0, stability_checks - 1)  # Reduce stability
+                            # More lenient image loading requirements for dynamic platforms
+                            min_image_ratio = 0.4 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 0.6
+                            if image_load_ratio < min_image_ratio:
+                                logger.debug(f"Images still loading ({page_metrics['loadedImages']}/{image_count}, ratio: {image_load_ratio:.2f}): {url}")
+                                # Don't penalize as heavily for dynamic platforms
+                                if platform not in ['xiaohongshu', 'douyin', 'weibo']:
+                                    stability_checks = max(0, stability_checks - 1)
                                 continue
                         
-                        # If we have enough stable checks, consider page stable
-                        if stability_checks >= 2:  # At least 2 consecutive stable checks
-                            logger.info(f"Page is stable and ready for crawling: {url} (final metrics: elements={element_count}, images={image_count}/{page_metrics['loadedImages']})")
+                        # If we have enough stable checks, consider page stable (reduced requirement)
+                        required_stable_checks = 1 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 2
+                        if stability_checks >= required_stable_checks:
+                            logger.info(f"Page is stable and ready for crawling: {url} (platform: {platform}, stable_checks: {stability_checks}, final metrics: elements={element_count}, images={image_count}/{page_metrics['loadedImages']})")
                             return True
                     else:
                         # Content changed, reset stability counter
@@ -5362,23 +5435,34 @@ class BrowserInstanceManager(LoggerMixin):
                     logger.warning(f"Error during enhanced stability check {check}: {e}")
                     continue
             
-            # Final fallback check
+            # Final fallback check with platform-specific criteria
             try:
                 final_metrics = await page.evaluate('''
                     () => ({
                         readyState: document.readyState,
-                        hasContent: (document.body?.innerText || '').trim().length > 50,
+                        hasContent: (document.body?.innerText || '').trim().length > 20,
                         loadingIndicators: document.querySelectorAll('[class*="loading"], [class*="spinner"]').length
                     })
                 ''')
                 
-                if (final_metrics['readyState'] == 'complete' and 
-                    final_metrics['hasContent'] and 
-                    final_metrics['loadingIndicators'] == 0):
-                    logger.info(f"Page meets final stability criteria: {url}")
+                # More lenient final check for dynamic platforms
+                content_threshold = 20 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 50
+                loading_threshold = 2 if platform in ['xiaohongshu', 'douyin', 'weibo'] else 0
+                
+                has_adequate_content = len(str(final_metrics.get('hasContent', ''))) > content_threshold or final_metrics.get('hasContent', False)
+                acceptable_loading = final_metrics['loadingIndicators'] <= loading_threshold
+                
+                if (final_metrics['readyState'] in ['interactive', 'complete'] and 
+                    has_adequate_content and 
+                    acceptable_loading):
+                    logger.info(f"Page meets final stability criteria for {platform}: {url} (readyState: {final_metrics['readyState']}, content: {has_adequate_content}, loading: {final_metrics['loadingIndicators']})")
                     return True
                 else:
-                    logger.warning(f"Page failed final stability check: {url} (readyState: {final_metrics['readyState']}, hasContent: {final_metrics['hasContent']}, loading: {final_metrics['loadingIndicators']})")
+                    logger.warning(f"Page failed final stability check for {platform}: {url} (readyState: {final_metrics['readyState']}, hasContent: {has_adequate_content}, loading: {final_metrics['loadingIndicators']})")
+                    # For dynamic platforms, be more forgiving in final check
+                    if platform in ['xiaohongshu', 'douyin', 'weibo'] and has_adequate_content:
+                        logger.info(f"Accepting page for dynamic platform {platform} despite loading indicators: {url}")
+                        return True
                     return False
                     
             except Exception as e:
@@ -5536,8 +5620,13 @@ class BrowserInstanceManager(LoggerMixin):
                     "timestamp": datetime.utcnow()
                 }
             
+            # 修复关键bug：返回登录状态检测结果
+            logger.debug(f"Login status check completed for {instance_id}/{page_id}: is_logged_in={is_logged_in}, method={detection_method}")
+            return is_logged_in
+            
         except Exception as e:
             logger.error(f"Error checking page login status: {e}")
+            return False  # 异常情况下返回未登录状态
     
     async def _periodic_login_detection(self):
         """Periodic login status detection for all active instances"""

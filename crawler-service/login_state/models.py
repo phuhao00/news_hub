@@ -367,6 +367,13 @@ DATABASE_INDEXES = {
     "platform_configs": [
         {"keys": [("platform", 1)], "unique": True},
         {"keys": [("is_enabled", 1)]}
+    ],
+    "continuous_crawl_tasks": [
+        {"keys": [("task_id", 1)], "unique": True},
+        {"keys": [("session_id", 1), ("status", 1)]},
+        {"keys": [("user_id", 1), ("platform", 1)]},
+        {"keys": [("status", 1), ("next_crawl_at", 1)]},
+        {"keys": [("created_at", -1)]}
     ]
 }
 

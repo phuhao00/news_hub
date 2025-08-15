@@ -106,8 +106,15 @@ func initializeDatabase(db *mongo.Database) error {
 	defer cancel()
 
 	// 创建集合
-	collections := []string{"creators", "posts", "videos", "publish_tasks"}
-	for _, collName := range collections {
+	// 基础业务集合
+	baseCollections := []string{"creators", "posts", "videos", "publish_tasks"}
+	// 爬虫服务集合
+	crawlerCollections := []string{"sessions", "browser_instances", "cookie_data", "crawl_tasks", "platform_configs", "continuous_crawl_tasks", "crawler_contents", "login_sessions", "notifications"}
+	
+	// 合并所有集合
+	allCollections := append(baseCollections, crawlerCollections...)
+	
+	for _, collName := range allCollections {
 		if err := db.CreateCollection(ctx, collName); err != nil {
 			// 忽略集合已存在的错误
 			if !mongo.IsDuplicateKeyError(err) && err.Error() != "Collection already exists." {
@@ -181,6 +188,11 @@ func createIndexes(ctx context.Context, db *mongo.Database) error {
 		return fmt.Errorf("创建publish_tasks索引失败: %w", err)
 	}
 
+	// 爬虫服务相关索引
+	if err := createCrawlerIndexes(ctx, db); err != nil {
+		return fmt.Errorf("创建爬虫服务索引失败: %w", err)
+	}
+
 	fmt.Println("✓ 索引创建完成")
 	return nil
 }
@@ -234,6 +246,205 @@ func insertSampleData(db *mongo.Database) error {
 	return nil
 }
 
+// createCrawlerIndexes 创建爬虫服务相关索引
+func createCrawlerIndexes(ctx context.Context, db *mongo.Database) error {
+	fmt.Println("正在创建爬虫服务索引...")
+
+	// sessions 索引
+	sessionsIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"session_id", 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{"user_id", 1}, {"platform", 1}},
+		},
+		{
+			Keys:    bson.D{{"is_active", 1}, {"expires_at", 1}},
+		},
+		{
+			Keys:    bson.D{{"platform", 1}, {"is_logged_in", 1}},
+		},
+		{
+			Keys:    bson.D{{"created_at", -1}},
+		},
+	}
+	if _, err := db.Collection("sessions").Indexes().CreateMany(ctx, sessionsIndexes); err != nil {
+		return fmt.Errorf("创建sessions索引失败: %w", err)
+	}
+
+	// browser_instances 索引
+	browserInstancesIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"instance_id", 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{"session_id", 1}},
+		},
+		{
+			Keys:    bson.D{{"platform", 1}, {"is_active", 1}},
+		},
+		{
+			Keys:    bson.D{{"is_active", 1}, {"expires_at", 1}},
+		},
+		{
+			Keys:    bson.D{{"last_activity", 1}},
+		},
+	}
+	if _, err := db.Collection("browser_instances").Indexes().CreateMany(ctx, browserInstancesIndexes); err != nil {
+		return fmt.Errorf("创建browser_instances索引失败: %w", err)
+	}
+
+	// cookie_data 索引
+	cookieDataIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"cookie_id", 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{"session_id", 1}, {"domain", 1}},
+		},
+		{
+			Keys:    bson.D{{"platform", 1}, {"domain", 1}},
+		},
+		{
+			Keys:    bson.D{{"is_active", 1}, {"expires_at", 1}},
+		},
+		{
+			Keys:    bson.D{{"created_at", -1}},
+		},
+	}
+	if _, err := db.Collection("cookie_data").Indexes().CreateMany(ctx, cookieDataIndexes); err != nil {
+		return fmt.Errorf("创建cookie_data索引失败: %w", err)
+	}
+
+	// crawl_tasks 索引
+	crawlTasksIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"task_id", 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{"session_id", 1}, {"status", 1}},
+		},
+		{
+			Keys:    bson.D{{"user_id", 1}, {"platform", 1}},
+		},
+		{
+			Keys:    bson.D{{"status", 1}, {"created_at", -1}},
+		},
+		{
+			Keys:    bson.D{{"created_at", -1}},
+		},
+	}
+	if _, err := db.Collection("crawl_tasks").Indexes().CreateMany(ctx, crawlTasksIndexes); err != nil {
+		return fmt.Errorf("创建crawl_tasks索引失败: %w", err)
+	}
+
+	// platform_configs 索引
+	platformConfigsIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"platform", 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{"is_enabled", 1}},
+		},
+	}
+	if _, err := db.Collection("platform_configs").Indexes().CreateMany(ctx, platformConfigsIndexes); err != nil {
+		return fmt.Errorf("创建platform_configs索引失败: %w", err)
+	}
+
+	// continuous_crawl_tasks 索引 (基于实际使用模式)
+	continuousCrawlTasksIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"user_id", 1}, {"platform", 1}},
+		},
+		{
+			Keys:    bson.D{{"is_active", 1}, {"next_crawl_at", 1}},
+		},
+		{
+			Keys:    bson.D{{"created_at", -1}},
+		},
+	}
+	if _, err := db.Collection("continuous_crawl_tasks").Indexes().CreateMany(ctx, continuousCrawlTasksIndexes); err != nil {
+		return fmt.Errorf("创建continuous_crawl_tasks索引失败: %w", err)
+	}
+
+	// crawler_contents 索引
+	crawlerContentsIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"task_id", 1}},
+		},
+		{
+			Keys:    bson.D{{"content_hash", 1}},
+		},
+		{
+			Keys:    bson.D{{"platform", 1}},
+		},
+		{
+			Keys:    bson.D{{"created_at", -1}},
+		},
+		{
+			Keys:    bson.D{{"task_id", 1}, {"content_hash", 1}},
+			Options: options.Index().SetUnique(true),
+		},
+	}
+	if _, err := db.Collection("crawler_contents").Indexes().CreateMany(ctx, crawlerContentsIndexes); err != nil {
+		return fmt.Errorf("创建crawler_contents索引失败: %w", err)
+	}
+
+	// login_sessions 索引 - 清空collection以避免重复数据问题
+	// 由于存在重复的session_id数据，直接清空collection重新开始
+	db.Collection("login_sessions").Drop(ctx)
+	// 重新创建collection
+	db.CreateCollection(ctx, "login_sessions")
+
+	loginSessionsIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"session_id", 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{"platform", 1}, {"user_id", 1}},
+		},
+		{
+			Keys:    bson.D{{"expires_at", 1}},
+			Options: options.Index().SetExpireAfterSeconds(0), // TTL索引，根据expires_at字段自动过期
+		},
+		{
+			Keys:    bson.D{{"created_at", -1}},
+		},
+	}
+	if _, err := db.Collection("login_sessions").Indexes().CreateMany(ctx, loginSessionsIndexes); err != nil {
+		return fmt.Errorf("创建login_sessions索引失败: %w", err)
+	}
+
+	// notifications 索引
+	notificationsIndexes := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{"session_id", 1}},
+		},
+		{
+			Keys:    bson.D{{"timestamp", -1}},
+		},
+		{
+			Keys:    bson.D{{"read", 1}},
+		},
+		{
+			Keys:    bson.D{{"created_at", 1}},
+			Options: options.Index().SetExpireAfterSeconds(2592000), // 30天TTL
+		},
+	}
+	if _, err := db.Collection("notifications").Indexes().CreateMany(ctx, notificationsIndexes); err != nil {
+		return fmt.Errorf("创建notifications索引失败: %w", err)
+	}
+
+	fmt.Println("✓ 爬虫服务索引创建完成")
+	return nil
+}
+
 // showDatabaseStatus 显示数据库状态
 func showDatabaseStatus(db *mongo.Database) {
 	fmt.Println()
@@ -243,13 +454,26 @@ func showDatabaseStatus(db *mongo.Database) {
 	defer cancel()
 
 	// 显示集合信息
-	collections := []string{"creators", "posts", "videos", "publish_tasks"}
-	for _, collName := range collections {
+	baseCollections := []string{"creators", "posts", "videos", "publish_tasks"}
+	crawlerCollections := []string{"sessions", "browser_instances", "cookie_data", "crawl_tasks", "platform_configs", "continuous_crawl_tasks", "crawler_contents", "login_sessions", "notifications"}
+	
+	fmt.Println("基础业务集合:")
+	for _, collName := range baseCollections {
 		count, err := db.Collection(collName).CountDocuments(ctx, bson.M{})
 		if err != nil {
-			fmt.Printf("%s: 获取数量失败 (%v)\n", collName, err)
+			fmt.Printf("  %s: 获取数量失败 (%v)\n", collName, err)
 		} else {
-			fmt.Printf("%s: %d 条记录\n", collName, count)
+			fmt.Printf("  %s: %d 条记录\n", collName, count)
+		}
+	}
+	
+	fmt.Println("\n爬虫服务集合:")
+	for _, collName := range crawlerCollections {
+		count, err := db.Collection(collName).CountDocuments(ctx, bson.M{})
+		if err != nil {
+			fmt.Printf("  %s: 获取数量失败 (%v)\n", collName, err)
+		} else {
+			fmt.Printf("  %s: %d 条记录\n", collName, count)
 		}
 	}
 

@@ -30,7 +30,7 @@ if defined EXISTING_CONTAINER (
     docker start newshub-mongodb
 ) else (
     echo 创建新的 MongoDB 容器...
-    docker run -d --name newshub-mongodb -p 27015:27017 -v "%cd%\init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js" mongo:latest
+    docker run -d --name newshub-mongodb -p 27017:27017 -v "%cd%\init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js" mongo:latest
 )
 
 REM 等待MongoDB启动
