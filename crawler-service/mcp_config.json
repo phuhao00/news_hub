@@ -1,6 +1,6 @@
 {
   "mcp_services": {
-    "enabled": true,
+    "enabled": false,
     "service_priority": ["browser_mcp", "local_mcp"],
     "fallback_enabled": true,
     "default_timeout": 30,

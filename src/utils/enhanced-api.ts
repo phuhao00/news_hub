@@ -1,5 +1,5 @@
 // Enhanced API methods for powerful features
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001/api';
 
 const apiCall = async (url: string, options: RequestInit = {}) => {
   const token = localStorage.getItem('authToken');

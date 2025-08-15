@@ -12,10 +12,11 @@ from .models import (
     DEFAULT_PLATFORM_CONFIGS,
     PlatformConfigDocument
 )
+from logging_config import get_logger, LoggerMixin, log_async_function_call
 
-logger = logging.getLogger(__name__)
+logger = get_logger('login_state.database')
 
-class DatabaseManager:
+class DatabaseManager(LoggerMixin):
     """Database management service for login state management"""
     
     def __init__(self, db: AsyncIOMotorDatabase):

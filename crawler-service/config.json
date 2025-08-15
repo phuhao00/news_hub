@@ -5,7 +5,7 @@
     "reload": false
   },
   "crawler": {
-    "headless": true,
+    "headless": false,
     "timeout": 30,
     "max_concurrent": 5,
     "log_level": "INFO"
@@ -27,5 +27,23 @@
       "enabled": true,
       "timeout": 60
     }
+  },
+  "worker": {
+    "worker_count": 3,
+    "max_concurrent_tasks": 5,
+    "task_timeout": 60,
+    "heartbeat_interval": 30,
+    "queue_check_interval": 1,
+    "task_queue_key": "crawl_tasks"
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "db": 0,
+    "password": null
+  },
+  "backend": {
+    "api_url": "http://localhost:8081",
+    "api_timeout": 10
   }
-} 
+}

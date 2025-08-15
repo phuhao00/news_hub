@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 // Backend API configuration
-const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8080/api';
+const BACKEND_API_URL = process.env.BACKEND_API_URL || 'http://localhost:8001/api';
 
 export async function POST(request: Request) {
   try {

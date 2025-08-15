@@ -710,8 +710,11 @@ async def initialize_managers(
     try:
         # Initialize managers
         session_manager = SessionManager(db, redis_client)
-        browser_manager = BrowserInstanceManager(db)  # Pass db parameter
         cookie_store = CookieStore(db)
+        browser_manager = BrowserInstanceManager(db, session_manager, cookie_store)  # Pass all required parameters
+        
+        # Initialize Playwright for browser manager
+        await browser_manager.initialize()
         db_manager = DatabaseManager(db)
         
         # Initialize database

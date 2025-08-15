@@ -11,8 +11,9 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from cryptography.fernet import Fernet
 from bson import ObjectId
 import logging
+from logging_config import get_logger, LoggerMixin, log_async_function_call
 
-logger = logging.getLogger(__name__)
+logger = get_logger('login_state.session_manager')
 
 def convert_objectid_to_str(document: dict) -> dict:
     """Convert MongoDB ObjectId fields to strings for JSON serialization"""
@@ -37,7 +38,7 @@ def convert_objectid_to_str(document: dict) -> dict:
     
     return converted
 
-class SessionManager:
+class SessionManager(LoggerMixin):
     """Session management service with Redis caching and MongoDB persistence"""
     
     def __init__(self, db: AsyncIOMotorDatabase, redis_client: aioredis.Redis = None):

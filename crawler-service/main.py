@@ -38,14 +38,18 @@ from login_state import initialize_managers, shutdown_managers, router as login_
 
 # Windows上的asyncio事件循环策略修复
 if platform.system() == 'Windows':
+    # 使用ProactorEventLoopPolicy来兼容Playwright，因为SelectorEventLoop不支持subprocess
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 # 加载环境变量
 load_dotenv()
 
+# 导入日志配置
+from logging_config import setup_logging, get_logger
+
 # 配置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+setup_logging()
+logger = get_logger(__name__)
 
 # ==================== Configuration Loading ====================
 
@@ -275,118 +279,28 @@ class UnifiedCrawlerService:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
             
-            # Configure browser with optimized BrowserConfig, enable stealth mode and anti-bot detection
+            # Configure browser with simplified settings to avoid startup hang
             browser_config = BrowserConfig(
                 browser_type="chromium",
-                headless=False,  # Non-headless mode is harder to detect
-                enable_stealth=True,  # Enable stealth mode
+                headless=True,  # Use headless mode to avoid display issues
                 viewport_width=1920,
                 viewport_height=1080,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                user_agent_mode="random",  # Randomize user agent
                 ignore_https_errors=True,
                 java_script_enabled=True,
-                text_mode=False,  # Keep image loading to avoid detection
-                light_mode=False,
-                verbose=True,
-                # Optimized browser parameters for improved performance and stability
+                verbose=False,  # Reduce verbosity to avoid log spam
+                # Minimal browser parameters for stable startup
                 extra_args=[
-                    # Basic security and sandbox settings
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
+                    "--disable-gpu",
                     "--disable-web-security",
-                    "--disable-features=VizDisplayCompositor",
-                    
-                    # Anti-automation detection
-                    "--disable-blink-features=AutomationControlled",
-                    "--exclude-switches=enable-automation",
-                    "--disable-extensions-except=*",
-                    "--disable-plugins-discovery",
-                    
-                    # Performance optimization
                     "--no-first-run",
                     "--disable-default-apps",
                     "--disable-infobars",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-field-trial-config",
-                    "--disable-back-forward-cache",
-                    "--disable-ipc-flooding-protection",
-                    "--disable-component-update",
-                    "--disable-domain-reliability",
-                    "--disable-background-networking",
-                    "--disable-preconnect",
-                    "--disable-hang-monitor",
-                    
-                    # Network and SSL settings
                     "--ignore-certificate-errors",
-                    "--ignore-ssl-errors",
-                    "--ignore-certificate-errors-spki-list",
-                    "--ignore-certificate-errors-ssl-errors",
-                    "--allow-running-insecure-content",
-                    "--disable-popup-blocking",
-                    
-                    # Privacy and tracking settings
-                    "--disable-sync",
-                    "--disable-translate",
-                    "--metrics-recording-only",
-                    "--no-default-browser-check",
-                    "--no-pings",
-                    "--password-store=basic",
-                    "--use-mock-keychain",
-                    
-                    # Media and audio settings
-                    "--mute-audio",
-                    "--autoplay-policy=no-user-gesture-required",
-                    
-                    # Rendering and display optimization
-                    "--enable-features=NetworkService,NetworkServiceLogging",
-                    "--force-color-profile=srgb",
-                    "--disable-features=TranslateUI,BlinkGenPropertyTrees",
-                    "--disable-component-extensions-with-background-pages",
-                    
-                    # Memory and resource management
-                    "--max_old_space_size=4096",
-                    "--memory-pressure-off",
-                    "--disable-background-media-suspend",
-                    
-                    # Chinese website optimization
-                    "--lang=zh-CN",
-                    "--accept-lang=zh-CN,zh,en-US,en",
-                    "--disable-features=VizDisplayCompositor,AudioServiceOutOfProcess",
-                    
-                    # GPU and hardware acceleration
-                    "--disable-gpu-sandbox",
-                    "--enable-gpu-rasterization",
-                    "--enable-zero-copy"
-                ],
-                # Optimized request headers to simulate real browser behavior
-                headers={
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-                    "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6",
-                    "Accept-Encoding": "gzip, deflate, br",
-                    "Cache-Control": "max-age=0",
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Upgrade-Insecure-Requests": "1",
-                    "Connection": "keep-alive",
-                    "Sec-Ch-Ua": '"Chromium";v="120", "Not_A Brand";v="99", "Google Chrome";v="120"',
-                    "Sec-Ch-Ua-Mobile": "?0",
-                    "Sec-Ch-Ua-Platform": '"Windows"',
-                    "Sec-Ch-Ua-Platform-Version": '"15.0.0"',
-                    "Sec-Ch-Ua-Arch": '"x86"',
-                    "Sec-Ch-Ua-Model": '"",',
-                    "Sec-Ch-Ua-Bitness": '"64"',
-                    "Sec-Ch-Ua-Wow64": "?0",
-                    "Sec-Ch-Ua-Full-Version-List": '"Chromium";v="120.0.6099.109", "Not_A Brand";v="99.0.0.0", "Google Chrome";v="120.0.6099.109"',
-                    # Chinese website specific headers
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Origin": "https://weibo.com",
-                    "Referer": "https://weibo.com/"
-                }
+                    "--allow-running-insecure-content"
+                ]
             )
             
             # Initialize crawl4ai async crawler
@@ -4654,7 +4568,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # 允许前端域名
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],  # 允许前端域名
     allow_credentials=True,
     allow_methods=["*"],  # 允许所有HTTP方法
     allow_headers=["*"],  # 允许所有请求头
@@ -4994,9 +4908,156 @@ async def get_service_status():
             "/mcp/crawl/batch - MCP批量URL爬取",
             "/mcp/status - MCP服务状态",
             "/platforms - 支持的平台列表",
-            "/health - 健康检查"
+            "/health - 健康检查",
+            "/worker/health - Worker健康检查",
+            "/worker/stats - Worker统计信息",
+            "/worker/restart - 重启所有Workers"
         ]
     }
+
+# ==================== Worker模式API接口 ====================
+
+# 全局Worker管理器实例
+worker_manager = None
+
+@app.on_event("startup")
+async def init_worker_manager():
+    """初始化Worker管理器"""
+    global worker_manager
+    try:
+        from worker.worker_manager import WorkerManager, WorkerConfig
+        
+        # 从配置文件加载Worker配置
+        worker_config_data = app_config.get("worker", {})
+        worker_config = WorkerConfig(
+            num_workers=worker_config_data.get("num_workers", 3),
+            max_concurrent_tasks=worker_config_data.get("max_concurrent_tasks", 5),
+            task_timeout=worker_config_data.get("task_timeout", 300),
+            heartbeat_interval=worker_config_data.get("heartbeat_interval", 30),
+            queue_check_interval=worker_config_data.get("queue_check_interval", 5),
+            task_queue_key=worker_config_data.get("task_queue_key", "crawler:tasks"),
+            redis_host=app_config.get("redis", {}).get("host", "localhost"),
+            redis_port=app_config.get("redis", {}).get("port", 6379),
+            redis_db=app_config.get("redis", {}).get("db", 0),
+            redis_password=app_config.get("redis", {}).get("password"),
+            backend_api_url=app_config.get("backend_api", {}).get("url", "http://localhost:8081"),
+            backend_api_timeout=app_config.get("backend_api", {}).get("timeout", 30)
+        )
+        
+        worker_manager = WorkerManager(worker_config)
+        logger.info("Worker管理器初始化成功")
+        
+    except Exception as e:
+        logger.error(f"Worker管理器初始化失败: {e}")
+        worker_manager = None
+
+@app.on_event("shutdown")
+async def cleanup_worker_manager():
+    """清理Worker管理器"""
+    global worker_manager
+    if worker_manager:
+        try:
+            await worker_manager.stop_all_workers()
+            logger.info("Worker管理器已清理")
+        except Exception as e:
+            logger.error(f"Worker管理器清理失败: {e}")
+        finally:
+            worker_manager = None
+
+@app.get("/worker/health")
+async def worker_health_check():
+    """Worker健康检查"""
+    global worker_manager
+    if not worker_manager:
+        return {
+            "status": "disabled",
+            "message": "Worker管理器未初始化",
+            "timestamp": datetime.now()
+        }
+    
+    try:
+        stats = await worker_manager.get_stats()
+        return {
+            "status": "healthy",
+            "worker_count": stats["total_workers"],
+            "active_workers": stats["active_workers"],
+            "total_tasks_processed": stats["total_tasks_processed"],
+            "timestamp": datetime.now()
+        }
+    except Exception as e:
+        logger.error(f"获取Worker健康状态失败: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now()
+        }
+
+@app.get("/worker/stats")
+async def get_worker_stats():
+    """获取Worker统计信息"""
+    global worker_manager
+    if not worker_manager:
+        raise HTTPException(status_code=503, detail="Worker管理器未初始化")
+    
+    try:
+        stats = await worker_manager.get_stats()
+        return {
+            "stats": stats,
+            "timestamp": datetime.now(),
+            "success": True
+        }
+    except Exception as e:
+        logger.error(f"获取Worker统计信息失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/worker/restart")
+async def restart_workers():
+    """重启所有Workers"""
+    global worker_manager
+    if not worker_manager:
+        raise HTTPException(status_code=503, detail="Worker管理器未初始化")
+    
+    try:
+        # 停止所有现有Workers
+        await worker_manager.stop_all_workers()
+        
+        # 重新启动Workers
+        await worker_manager.start_workers()
+        
+        stats = await worker_manager.get_stats()
+        return {
+            "message": "所有Workers已重启",
+            "worker_count": stats["total_workers"],
+            "timestamp": datetime.now(),
+            "success": True
+        }
+    except Exception as e:
+        logger.error(f"重启Workers失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/worker/{worker_id}/stats")
+async def get_worker_stats_by_id(worker_id: int):
+    """获取特定Worker的统计信息"""
+    global worker_manager
+    if not worker_manager:
+        raise HTTPException(status_code=503, detail="Worker管理器未初始化")
+    
+    try:
+        worker_stats = await worker_manager.get_worker_stats(worker_id)
+        if not worker_stats:
+            raise HTTPException(status_code=404, detail=f"Worker {worker_id} 不存在")
+        
+        return {
+            "worker_id": worker_id,
+            "stats": worker_stats,
+            "timestamp": datetime.now(),
+            "success": True
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取Worker {worker_id} 统计信息失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== 主程序入口 ====================
 
@@ -5008,6 +5069,7 @@ if __name__ == "__main__":
     reload = server_config.get("reload", False)
     
     logger.info(f"爬虫服务启动配置: host={host}, port={port}, reload={reload}")
+    logger.info("支持模式: 传统爬取API + 异步Worker模式")
     
     uvicorn.run(
         app, 

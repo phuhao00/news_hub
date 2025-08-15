@@ -15,6 +15,7 @@ import (
 	"newshub/handlers"
 	"newshub/middleware"
 	"newshub/utils"
+	"newshub/task_scheduler"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -31,11 +32,12 @@ func main() {
 		log.Fatalf("连接数据库失败：%v\n", err)
 	}
 
-	// 初始化MinIO客户端
+	// 初始化MinIO客户端（可选）
 	if err := config.InitMinIO(); err != nil {
-		log.Fatalf("初始化MinIO失败：%v\n", err)
+		log.Printf("警告：MinIO初始化失败，文件上传功能将不可用：%v\n", err)
+	} else {
+		log.Println("✅ MinIO客户端初始化成功")
 	}
-	log.Println("✅ MinIO客户端初始化成功")
 
 	// 如无数据则写入默认创作者种子数据
 	if err := seedCreatorsIfEmpty(); err != nil {
@@ -51,6 +53,18 @@ func main() {
 	crawlerService := crawler.NewScheduledCrawlerService()
 	crawlerService.Start()
 	log.Println("✅ 定时爬虫服务已启动")
+
+	// 初始化任务调度器
+	taskScheduler, err := task_scheduler.NewTaskScheduler(task_scheduler.DefaultSchedulerConfig())
+	if err != nil {
+		log.Fatalf("初始化任务调度器失败：%v\n", err)
+	}
+
+	// 启动任务调度器
+	if err := taskScheduler.Start(); err != nil {
+		log.Fatalf("启动任务调度器失败：%v\n", err)
+	}
+	log.Println("✅ 异步任务调度器已启动")
 
 	// 注册自定义验证器
 	middleware.RegisterCustomValidators()
@@ -85,6 +99,9 @@ func main() {
 
 	// 创建存储处理器
 	storageHandler := handlers.NewStorageHandler()
+
+	// 创建任务处理器
+	taskHandler := handlers.NewTaskHandler(taskScheduler)
 
 	// API路由
 	api := r.Group("/api")
@@ -133,6 +150,19 @@ func main() {
 
 		// 爬取内容接口
 		api.GET("/crawler/contents", handlers.GetCrawlerContents)
+
+		// 异步任务调度接口
+		api.POST("/tasks", taskHandler.CreateTask)
+		api.GET("/tasks", taskHandler.ListTasks)
+		api.GET("/tasks/:id", taskHandler.GetTask)
+		api.PUT("/tasks/:id/status", taskHandler.UpdateTaskStatus)
+		api.POST("/tasks/:id/retry", taskHandler.RetryTask)
+		api.GET("/tasks/metrics", taskHandler.GetTaskMetrics)
+		api.GET("/tasks/dead-letter", taskHandler.GetDeadLetterTasks)
+		api.POST("/tasks/dead-letter/:id/reprocess", taskHandler.ReprocessDeadLetterTask)
+
+		// 爬虫Worker接口（供Python服务调用）
+		api.GET("/worker/next-task", taskHandler.GetNextTask)
 	}
 
 	// 加载配置文件
@@ -162,7 +192,15 @@ func main() {
 	}()
 
 	// 等待中断信号以优雅地关闭服务器
-	utils.GracefulShutdown(srv)
+	go func() {
+		utils.GracefulShutdown(srv)
+		// 关闭任务调度器
+		taskScheduler.Stop()
+		log.Println("✅ 任务调度器已关闭")
+	}()
+
+	// 阻塞主线程
+	select {}
 }
 
 // seedCreatorsIfEmpty 如果 creators 集合为空，写入示例创作者数据

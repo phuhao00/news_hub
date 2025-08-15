@@ -13,8 +13,11 @@ import (
 var DB *mongo.Database
 
 func ConnectDB() error {
-	// 直接使用newshub-mongodb容器的端口
-	mongoURI := "mongodb://localhost:27015"
+	// 使用配置文件中的MongoDB URI或默认端口
+	mongoURI := GetMongodbURI()
+	if mongoURI == "" {
+		mongoURI = "mongodb://localhost:27017"
+	}
 	
 	log.Printf("尝试连接MongoDB: %s", mongoURI)
 	clientOptions := options.Client().ApplyURI(mongoURI)

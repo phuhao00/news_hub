@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:8081/api';
+const API_BASE_URL = 'http://localhost:8001/api';
 
 // 创作者相关API
 export const creatorApi = {

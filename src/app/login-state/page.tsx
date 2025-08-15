@@ -27,7 +27,8 @@ import {
   Download,
   Upload,
   BarChart3,
-  Bell
+  Bell,
+  User
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -56,13 +57,17 @@ interface BrowserInstance {
 }
 
 interface CrawlTask {
-  task_id: string;
-  session_id: string;
-  platform: string;
+  id: string;
   url: string;
+  platform: string;
+  priority: number;
+  max_retries: number;
   status: 'pending' | 'running' | 'completed' | 'failed';
   created_at: string;
+  updated_at?: string;
   result?: Record<string, unknown>;
+  error?: string;
+  retry_count?: number;
 }
 
 const PLATFORMS = [
@@ -118,13 +123,50 @@ export default function LoginStatePage() {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || errorData.message || `API call failed: ${response.statusText}`);
+        let errorMessage = errorData.detail || errorData.message || `API调用失败: ${response.statusText}`;
+        
+        // 根据状态码提供更具体的错误信息
+        switch (response.status) {
+          case 400:
+            errorMessage = `请求参数错误: ${errorMessage}`;
+            break;
+          case 401:
+            errorMessage = '身份验证失败，请重新登录';
+            break;
+          case 403:
+            errorMessage = '权限不足，无法执行此操作';
+            break;
+          case 404:
+            errorMessage = '请求的资源不存在';
+            break;
+          case 409:
+            errorMessage = `操作冲突: ${errorMessage}`;
+            break;
+          case 429:
+            errorMessage = '请求过于频繁，请稍后再试';
+            break;
+          case 500:
+            errorMessage = '服务器内部错误，请联系管理员';
+            break;
+          case 502:
+          case 503:
+          case 504:
+            errorMessage = '服务暂时不可用，请稍后重试';
+            break;
+          default:
+            errorMessage = `网络错误 (${response.status}): ${errorMessage}`;
+        }
+        
+        throw new Error(errorMessage);
       }
       
       return response.json();
     } catch (error) {
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('网络连接失败，请检查服务器是否运行');
+        throw new Error('网络连接失败，请检查后端服务是否正常运行 (端口8001)');
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error('服务器响应格式错误，请检查后端服务状态');
       }
       throw error;
     }
@@ -132,22 +174,56 @@ export default function LoginStatePage() {
 
   // 检查会话登录状态
   const checkSessionLoginStatus = async (sessionId: string) => {
+    console.log('🔍 [DEBUG] checkSessionLoginStatus called with sessionId:', sessionId);
+    console.log('🔍 [DEBUG] Current checkingLoginStatus state:', checkingLoginStatus);
+    
     setCheckingLoginStatus(sessionId);
+    console.log('🔍 [DEBUG] Set checkingLoginStatus to:', sessionId);
+    
     try {
-      const result = await apiCall(`/sessions/${sessionId}/check-login`, {
+      const apiUrl = `/sessions/${sessionId}/check-login`;
+      console.log('🔍 [DEBUG] Making API call to:', apiUrl);
+      console.log('🔍 [DEBUG] API call method: POST');
+      
+      const result = await apiCall(apiUrl, {
         method: 'POST'
       });
       
+      console.log('🔍 [DEBUG] API response received:', result);
+      console.log('🔍 [DEBUG] result.is_logged_in:', result.is_logged_in);
+      console.log('🔍 [DEBUG] result.browser_instances:', result.browser_instances);
+      
       if (result.is_logged_in) {
         const loginUser = result.browser_instances?.find(bi => bi.login_user)?.login_user;
-        toast.success(`检测到登录状态 - 用户: ${loginUser || '未知'}`);
+        console.log('🔍 [DEBUG] Found login user:', loginUser);
+        const successMessage = `检测到登录状态 - 用户: ${loginUser || '未知'}`;
+        console.log('🔍 [DEBUG] Showing success toast:', successMessage);
+        toast.success(successMessage);
+      } else {
+        const infoMessage = '当前会话未检测到登录状态';
+        console.log('🔍 [DEBUG] Showing info toast:', infoMessage);
+        toast.info(infoMessage);
       }
       
+      // 刷新数据以更新UI状态
+      console.log('🔍 [DEBUG] Calling loadData(true) to refresh UI');
+      loadData(true);
+      
+      console.log('🔍 [DEBUG] checkSessionLoginStatus completed successfully');
       return result;
     } catch (error) {
-      console.error('Failed to check login status:', error);
+      console.error('❌ [ERROR] Failed to check login status:', error);
+      console.error('❌ [ERROR] Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        sessionId: sessionId
+      });
+      const errorMessage = error instanceof Error ? error.message : '检查登录状态失败';
+      console.log('🔍 [DEBUG] Showing error toast:', errorMessage);
+      toast.error(errorMessage);
       return null;
     } finally {
+      console.log('🔍 [DEBUG] Setting checkingLoginStatus to null');
       setCheckingLoginStatus(null);
     }
   };
@@ -229,10 +305,20 @@ export default function LoginStatePage() {
         }
       }
       
-      const [tasksData, statsData] = await Promise.all([
-        apiCall('/crawl'),
-        apiCall('/stats/system')
-      ]);
+      // 获取异步任务调度系统的任务数据
+      const tasksResponse = await fetch('http://localhost:8081/api/tasks', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      let tasksData = { items: [] };
+      if (tasksResponse.ok) {
+        tasksData = await tasksResponse.json();
+      }
+      
+      const statsData = await apiCall('/stats/system');
       
       setSessions(sessions);
       setBrowserInstances(allInstances);
@@ -259,24 +345,50 @@ export default function LoginStatePage() {
 
   // 验证会话状态
   const validateSession = async (sessionId: string) => {
+    console.log('✅ [DEBUG] validateSession called with sessionId:', sessionId);
+    console.log('✅ [DEBUG] Current validatingSession state:', validatingSession);
+    
     setValidatingSession(sessionId);
+    console.log('✅ [DEBUG] Set validatingSession to:', sessionId);
+    
     try {
-      const result = await apiCall(`/sessions/${sessionId}`, {
+      const apiUrl = `/sessions/${sessionId}`;
+      console.log('✅ [DEBUG] Making API call to:', apiUrl);
+      console.log('✅ [DEBUG] API call method: GET');
+      
+      const result = await apiCall(apiUrl, {
         method: 'GET'
       });
       
+      console.log('✅ [DEBUG] API response received:', result);
+      console.log('✅ [DEBUG] result.is_logged_in:', result.is_logged_in);
+      console.log('✅ [DEBUG] result.login_user:', result.login_user);
+      
       if (result.is_logged_in) {
-        toast.success(`会话验证成功 - 已登录用户: ${result.login_user || '未知'}`);
+        const successMessage = `会话验证成功 - 已登录用户: ${result.login_user || '未知'}`;
+        console.log('✅ [DEBUG] Showing success toast (logged in):', successMessage);
+        toast.success(successMessage);
       } else {
-        toast.success('会话有效，可以使用浏览器实例进行登录');
+        const successMessage = '会话有效，可以使用浏览器实例进行登录';
+        console.log('✅ [DEBUG] Showing success toast (not logged in):', successMessage);
+        toast.success(successMessage);
       }
       
+      console.log('✅ [DEBUG] Calling loadData() to refresh UI');
       loadData(); // 刷新数据
+      console.log('✅ [DEBUG] validateSession completed successfully');
     } catch (error) {
-      console.error('Failed to validate session:', error);
+      console.error('❌ [ERROR] Failed to validate session:', error);
+      console.error('❌ [ERROR] Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        sessionId: sessionId
+      });
       const errorMessage = error instanceof Error ? error.message : '验证会话失败';
+      console.log('✅ [DEBUG] Showing error toast:', errorMessage);
       toast.error(errorMessage);
     } finally {
+      console.log('✅ [DEBUG] Setting validatingSession to null');
       setValidatingSession(null);
     }
   };
@@ -364,19 +476,32 @@ export default function LoginStatePage() {
         return;
       }
 
-      const result = await apiCall('/crawl/create', {
+      // 调用Go后端的异步任务调度API
+      const response = await fetch('http://localhost:8081/api/tasks/create', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           url: crawlUrl,
+          platform: selectedPlatform || 'weibo',
           session_id: selectedSession,
-          extract_options: {
+          priority: 5,
+          max_retries: 3,
+          metadata: {
             extract_images: true,
             extract_links: true,
-            max_posts: 10
-          },
-          save_to_db: true
+            max_posts: 10,
+            save_to_db: true
+          }
         })
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
       
       toast.success('爬取任务创建成功');
       setCrawlUrl('');
@@ -391,9 +516,19 @@ export default function LoginStatePage() {
   // 执行爬取任务
   const executeCrawlTask = async (taskId: string) => {
     try {
-      const result = await apiCall(`/crawl/${taskId}/execute`, {
-        method: 'POST'
+      // 调用Go后端的任务执行API
+      const response = await fetch(`http://localhost:8081/api/tasks/${taskId}/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
       
       toast.success('爬取任务执行成功');
       loadData();
@@ -491,11 +626,54 @@ export default function LoginStatePage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {/* 错误状态显示 */}
+      {error && (
+        <Alert className="border-red-200 bg-red-50">
+          <XCircle className="h-4 w-4 text-red-600" />
+          <AlertDescription className="text-red-800">
+            <div className="flex items-center justify-between">
+              <span>{error}</span>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  setError(null);
+                  loadData();
+                }}
+                className="ml-4 border-red-300 text-red-700 hover:bg-red-100"
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                重试
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      
+      {/* 操作指导 */}
+      {sessions.length === 0 && !loading && !error && (
+        <Alert className="border-blue-200 bg-blue-50">
+          <Settings className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-blue-800">
+            <div>
+              <p className="font-medium mb-2">开始使用登录状态管理系统：</p>
+              <ol className="list-decimal list-inside space-y-1 text-sm">
+                <li>创建新的会话（选择目标平台）</li>
+                <li>打开浏览器实例</li>
+                <li>在浏览器中手动登录目标平台</li>
+                <li>点击"检查登录"验证登录状态</li>
+                <li>创建并执行爬取任务</li>
+              </ol>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">登录状态管理</h1>
+          <h1 className="text-3xl font-bold tracking-tight">登录状态管理</h1>
           <p className="text-muted-foreground mt-2">
-            管理平台登录会话、浏览器实例和手动爬取任务
+            管理浏览器会话、检测登录状态并执行手动爬取任务
           </p>
           {lastRefresh && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -534,6 +712,16 @@ export default function LoginStatePage() {
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             手动刷新
           </Button>
+          
+          {/* 系统状态指示器 */}
+          <div className="flex items-center gap-2">
+            <div className={`h-2 w-2 rounded-full ${
+              error ? 'bg-red-500' : 'bg-green-500'
+            }`} />
+            <span className="text-sm text-muted-foreground">
+              {error ? '服务异常' : '服务正常'}
+            </span>
+          </div>
           
           {/* 通知按钮 */}
           <div className="relative">
@@ -745,6 +933,21 @@ export default function LoginStatePage() {
                             <p className="text-sm text-muted-foreground">
                               创建时间: {new Date(session.created_at).toLocaleString()}
                             </p>
+                            {session.login_user && (
+                              <p className="text-sm text-green-600 font-medium">
+                                登录用户: {session.login_user}
+                              </p>
+                            )}
+                            {session.current_url && (
+                              <p className="text-sm text-blue-600">
+                                当前页面: {session.current_url.length > 50 ? session.current_url.substring(0, 50) + '...' : session.current_url}
+                              </p>
+                            )}
+                            {session.last_login_check && (
+                              <p className="text-sm text-muted-foreground">
+                                最后检查: {new Date(session.last_login_check).toLocaleString()}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -758,7 +961,12 @@ export default function LoginStatePage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => validateSession(session.session_id)}
+                            onClick={() => {
+                              console.log('🔘 [BUTTON] 验证状态 button clicked for session:', session.session_id);
+                              console.log('🔘 [BUTTON] Current validatingSession state:', validatingSession);
+                              console.log('🔘 [BUTTON] Button disabled state:', validatingSession === session.session_id);
+                              validateSession(session.session_id);
+                            }}
                             disabled={validatingSession === session.session_id}
                           >
                             <RefreshCw className={`h-4 w-4 mr-1 ${validatingSession === session.session_id ? 'animate-spin' : ''}`} />
@@ -767,7 +975,12 @@ export default function LoginStatePage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => checkSessionLoginStatus(session.session_id)}
+                            onClick={() => {
+                              console.log('🔘 [BUTTON] 检查登录 button clicked for session:', session.session_id);
+                              console.log('🔘 [BUTTON] Current checkingLoginStatus state:', checkingLoginStatus);
+                              console.log('🔘 [BUTTON] Button disabled state:', checkingLoginStatus === session.session_id);
+                              checkSessionLoginStatus(session.session_id);
+                            }}
                             disabled={checkingLoginStatus === session.session_id}
                           >
                             <Eye className={`h-4 w-4 mr-1 ${checkingLoginStatus === session.session_id ? 'animate-spin' : ''}`} />
@@ -834,9 +1047,20 @@ export default function LoginStatePage() {
                               会话ID: {instance.session_id}
                             </p>
                             {instance.current_url && (
-                              <p className="text-sm text-muted-foreground">
-                                当前URL: {instance.current_url}
+                              <p className="text-sm text-blue-600">
+                                当前URL: {instance.current_url.length > 60 ? instance.current_url.substring(0, 60) + '...' : instance.current_url}
                               </p>
+                            )}
+                            {instance.login_user && (
+                              <p className="text-sm text-green-600 font-medium">
+                                登录用户: {instance.login_user}
+                              </p>
+                            )}
+                            {instance.login_status && (
+                              <Badge variant="default" className="mt-1">
+                                <User className="h-3 w-3 mr-1" />
+                                已登录
+                              </Badge>
                             )}
                           </div>
                         </div>
@@ -966,7 +1190,7 @@ export default function LoginStatePage() {
                           {task.status === 'pending' && (
                             <Button
                               size="sm"
-                              onClick={() => executeCrawlTask(task.task_id)}
+                              onClick={() => executeCrawlTask(task.id)}
                               disabled={loading}
                             >
                               <Play className="h-4 w-4 mr-1" />
@@ -997,7 +1221,7 @@ export default function LoginStatePage() {
                                       <body>
                                         <h1>爬取结果</h1>
                                         <h2>URL: ${task.url}</h2>
-                                        <h3>任务ID: ${task.task_id}</h3>
+                                        <h3>任务ID: ${task.id}</h3>
                                         <pre>${JSON.stringify(task.result, null, 2)}</pre>
                                       </body>
                                     </html>

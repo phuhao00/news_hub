@@ -33,7 +33,7 @@ async def initialize_browser():
     try:
         playwright = await async_playwright().start()
         browser = await playwright.chromium.launch(
-            headless=True,
+            headless=False,
             args=[
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
