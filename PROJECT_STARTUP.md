@@ -20,9 +20,9 @@
 |------|------|------|----------|
 | 前端 (Next.js) | 3000 | 用户界面 | `npm run dev` |
 | 后端 (Go) | 8081 | API服务 | `cd server && go run main.go` |
-| 爬虫服务 (Python) | 8001 | 内容爬取 | `cd crawler-service && python main.py` |
+| 爬虫服务 (Python/FastAPI) | 8001 | 登录状态/手动/连续爬取 | `cd crawler-service && python main.py` |
 | MinIO | 9000/9001 | 对象存储 | Docker容器 |
-| MongoDB | 27015 | 数据库 | Docker容器 |
+| MongoDB | 27017(容器)/27015(本地可配) | 数据库 | Docker容器 |
 
 ## 🔧 手动启动步骤
 
@@ -39,7 +39,7 @@
 
 ### 2. 启动 MongoDB 数据库
 ```powershell
-./init-database.ps1
+./init-database.ps1     # 支持初始化索引；不会清空白名单集合
 ```
 - 连接地址: `mongodb://localhost:27015`
 - 数据库名: `newshub`
@@ -77,7 +77,9 @@ python main.py
 - **后端API**: http://localhost:8081
 - **爬虫服务**: http://localhost:8001
 - **MinIO控制台**: http://localhost:9001
-- **API文档**: http://localhost:8001/docs
+- **爬虫API文档**: http://localhost:8001/docs
+  - 登录状态接口前缀: `/api/login-state`
+  - 关键端点: `/sessions`、`/browser-instances`、`/crawl/*`
 
 ## 🛠️ 开发环境要求
 
@@ -153,7 +155,7 @@ CRAWLER_SERVICE_URL=http://localhost:8001
 
 - **后端日志**: 在后端服务终端窗口查看
 - **前端日志**: 在前端服务终端窗口查看
-- **爬虫日志**: 在爬虫服务终端窗口查看
+- **爬虫日志**: 在爬虫服务终端窗口查看，或访问 `http://localhost:8001/docs` 进行交互测试
 - **Docker日志**: `docker logs <container_name>`
 
 ## 📚 开发指南
@@ -178,7 +180,12 @@ newshub/
 - **视频管理**: `/api/videos`
 - **发布管理**: `/api/publish`
 - **存储管理**: `/api/storage`
-- **爬虫管理**: `/api/crawler`
+- **爬虫管理（Go）**: `/api/crawler`
+- **登录状态/手动爬取（Python）**: `/api/login-state/*`
+  - `POST /api/login-state/sessions` 创建会话（支持 `custom + metadata.platform_alias` 映射 X）
+  - `POST /api/login-state/browser-instances` 打开浏览器实例（可传 `custom_config.default_url`）
+  - `POST /api/login-state/crawl/create` 创建手动爬取任务
+  - `POST /api/login-state/crawl/{task_id}/execute` 执行手动爬取
 
 ### 数据库集合
 

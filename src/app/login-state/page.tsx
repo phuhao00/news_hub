@@ -520,6 +520,44 @@ export default function LoginStatePage() {
     }
   };
 
+  // 直接抽取当前浏览器实例页面（调用 Python Login-State 手动爬取接口）
+  const extractCurrentPage = async (instance: BrowserInstance) => {
+    try {
+      if (!instance.current_url) {
+        toast.error('实例当前页为空，请先导航到目标帖子URL');
+        return;
+      }
+
+      // 1) 创建手动爬取任务
+      const createResp = await apiCall('/crawl/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          session_id: instance.session_id,
+          url: instance.current_url,
+          extract_content: true,
+          extract_links: true,
+          extract_images: true,
+          wait_time: 2,
+          scroll_to_bottom: false
+        })
+      });
+
+      const taskId = createResp.task_id;
+      if (!taskId) {
+        toast.error('创建抽取任务失败');
+        return;
+      }
+
+      // 2) 立即执行
+      const execResp = await apiCall(`/crawl/${taskId}/execute`, { method: 'POST' });
+      toast.success('抽取完成，结果已生成');
+      console.log('Extract result:', execResp);
+    } catch (error) {
+      console.error('Failed to extract current page:', error);
+      toast.error(error instanceof Error ? error.message : '抽取失败');
+    }
+  };
+
   // 创建爬取任务
   const createCrawlTask = async () => {
     if (!selectedSession || !crawlUrl) {
@@ -1140,6 +1178,15 @@ export default function LoginStatePage() {
                           >
                             <Globe className="h-4 w-4 mr-1" />
                             导航
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => extractCurrentPage(instance)}
+                            disabled={loading || instance.status !== 'running'}
+                          >
+                            <BarChart3 className="h-4 w-4 mr-1" />
+                            抽取当前页
                           </Button>
                           <Button
                             size="sm"

@@ -140,6 +140,24 @@ class ManualCrawlService:
                 timeout_ms=15000,
                 word_count_threshold=5
             ),
+            PlatformType.CUSTOM: CrawlConfig(
+                platform=PlatformType.CUSTOM,
+                extraction_schema={
+                    "title": "The main title or headline of the page/post",
+                    "content": "Primary textual content extracted from the page",
+                    "author": "Author or account name if detectable",
+                    "publish_time": "Publication time when available",
+                    "images": "List of image URLs detected on the page",
+                    "video": "Video URL if present",
+                    "likes": "Reaction/like count if visible",
+                    "reposts": "Share/repost count if visible",
+                    "comments": "Comment count if visible"
+                },
+                wait_for="networkidle",
+                scroll_config={"enabled": True, "max_scrolls": 1, "delay_ms": 800},
+                timeout_ms=15000,
+                word_count_threshold=5
+            ),
             PlatformType.XIAOHONGSHU: CrawlConfig(
                 platform=PlatformType.XIAOHONGSHU,
                 extraction_schema={

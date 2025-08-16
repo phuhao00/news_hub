@@ -40,9 +40,9 @@ MongoDB (数据存储)
 
 ### 服务端口配置
 - 前端: `http://localhost:3000`
-- Go后端: `http://localhost:8080`
+- Go后端: `http://localhost:8081`  (开发端口)
 - Python爬虫: `http://localhost:8001`
-- MongoDB: `localhost:27017`
+- MongoDB: `localhost:27017` (Docker 默认 27017，本地也可使用 27015)
 
 ## 🛠️ 技术栈
 
@@ -98,15 +98,11 @@ pip install -r requirements.txt
 
 ### 启动服务
 
-```bash
-# Windows
-.\start.bat
-
-# Linux/Mac
-./start.sh
-
-# PowerShell
-.\start.ps1
+```powershell
+# 一键启动（推荐，可选清库）
+./start-all.ps1               # 正常启动
+./start-all.ps1 -Interactive  # 启动时询问是否清库
+./start-all.ps1 -CleanDB      # 非交互清库（保留 sessions/login_sessions/platform_configs）
 ```
 
 ### 测试爬虫功能
@@ -123,8 +119,9 @@ python test_crawler.py
 
 - **主页**: http://localhost:3000
 - **爬虫管理**: http://localhost:3000/crawler
-- **API文档**: http://localhost:8001/docs
-- **健康检查**: http://localhost:8080/health
+- **登录状态管理**: http://localhost:3000/login-state
+- **爬虫服务 API 文档**: http://localhost:8001/docs
+- **后端健康检查**: http://localhost:8081/health
 
 ## 📖 使用指南
 
