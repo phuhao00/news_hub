@@ -75,6 +75,7 @@ const PLATFORMS = [
   { value: 'xiaohongshu', label: '小红书', icon: '📖' },
   { value: 'douyin', label: '抖音', icon: '🎵' },
   { value: 'bilibili', label: '哔哩哔哩', icon: '📺' },
+  { value: 'x', label: 'X/Twitter', icon: '𝕏' },
   { value: 'zhihu', label: '知乎', icon: '🤔' }
 ];
 
