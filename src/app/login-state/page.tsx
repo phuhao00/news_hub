@@ -83,8 +83,22 @@ const PLATFORMS = [
   { value: 'douyin', label: '抖音', icon: '🎵' },
   { value: 'bilibili', label: '哔哩哔哩', icon: '📺' },
   { value: 'x', label: 'X/Twitter', icon: '𝕏' },
-  { value: 'zhihu', label: '知乎', icon: '🤔' }
+  { value: 'zhihu', label: '知乎', icon: '🤔' },
+  { value: 'custom', label: '自定义', icon: '🛠️' },
 ];
+
+const PLATFORM_DISPLAY: Record<string, { label: string; icon: string }> = PLATFORMS.reduce((acc, cur) => {
+  acc[cur.value] = { label: cur.label, icon: cur.icon } as { label: string; icon: string };
+  return acc;
+}, {} as Record<string, { label: string; icon: string }>);
+
+function resolvePlatformDisplay(value: string, metadata?: Record<string, unknown>) {
+  const alias = (metadata?.platform_alias as string) || undefined;
+  if (value === 'custom' && alias && PLATFORM_DISPLAY[alias]) {
+    return { value: alias, ...PLATFORM_DISPLAY[alias] };
+  }
+  return { value, ...(PLATFORM_DISPLAY[value] || { label: value, icon: '🌐' }) };
+}
 
 const STATUS_COLORS = {
   active: 'bg-green-100 text-green-800',
@@ -137,8 +151,26 @@ export default function LoginStatePage() {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        let errorMessage = errorData.detail || errorData.message || `API调用失败: ${response.statusText}`;
-        
+        let rawDetail: any = (errorData && (errorData.detail ?? errorData.message ?? errorData.error)) ?? '';
+
+        // 统一把 detail 格式化成人可读字符串
+        let formattedDetail = '';
+        if (Array.isArray(rawDetail)) {
+          formattedDetail = rawDetail
+            .map((item) => {
+              const loc = Array.isArray(item.loc || item.path) ? (item.loc || item.path).join('.') : (item.loc || item.path || '');
+              const msg = item.msg || item.message || JSON.stringify(item);
+              return loc ? `${loc}: ${msg}` : `${msg}`;
+            })
+            .join('; ');
+        } else if (typeof rawDetail === 'object' && rawDetail) {
+          formattedDetail = JSON.stringify(rawDetail);
+        } else if (typeof rawDetail === 'string') {
+          formattedDetail = rawDetail;
+        }
+
+        let errorMessage = formattedDetail || `API调用失败: ${response.statusText}`;
+
         // 根据状态码提供更具体的错误信息
         switch (response.status) {
           case 400:
@@ -156,6 +188,9 @@ export default function LoginStatePage() {
           case 409:
             errorMessage = `操作冲突: ${errorMessage}`;
             break;
+          case 422:
+            errorMessage = `参数校验失败: ${errorMessage}`;
+            break;
           case 429:
             errorMessage = '请求过于频繁，请稍后再试';
             break;
@@ -170,7 +205,7 @@ export default function LoginStatePage() {
           default:
             errorMessage = `网络错误 (${response.status}): ${errorMessage}`;
         }
-        
+
         throw new Error(errorMessage);
       }
       
@@ -415,15 +450,17 @@ export default function LoginStatePage() {
     }
 
     try {
+      const isX = selectedPlatform === 'x';
       const result = await apiCall('/sessions', {
         method: 'POST',
         body: JSON.stringify({
-          platform: selectedPlatform,
+          platform: isX ? 'custom' : selectedPlatform,
           user_id: 'demo-user',
           browser_config: {
             headless: false,
             viewport: { width: 1920, height: 1080 }
-          }
+          },
+          metadata: isX ? { platform_alias: 'x' } : undefined
         })
       });
       
@@ -935,11 +972,11 @@ export default function LoginStatePage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
                           <div className="text-2xl">
-                            {PLATFORMS.find(p => p.value === session.platform)?.icon || '🌐'}
+                            {resolvePlatformDisplay(session.platform, session.metadata).icon}
                           </div>
                           <div>
                             <h3 className="font-semibold">
-                              {PLATFORMS.find(p => p.value === session.platform)?.label || session.platform}
+                              {resolvePlatformDisplay(session.platform, session.metadata).label}
                             </h3>
                             <p className="text-sm text-muted-foreground">
                               会话ID: {session.session_id}
@@ -1052,7 +1089,7 @@ export default function LoginStatePage() {
                           <Monitor className="h-8 w-8 text-blue-500" />
                           <div>
                             <h3 className="font-semibold">
-                              {PLATFORMS.find(p => p.value === instance.platform)?.label || instance.platform}
+                              {resolvePlatformDisplay(instance.platform, instance.metadata).label}
                             </h3>
                             <p className="text-sm text-muted-foreground">
                               实例ID: {instance.instance_id}
@@ -1182,7 +1219,7 @@ export default function LoginStatePage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
                           <div className="text-2xl">
-                            {PLATFORMS.find(p => p.value === task.platform)?.icon || '🌐'}
+                            {resolvePlatformDisplay(task.platform, (task as any).result as any)?.icon || '🌐'}
                           </div>
                           <div>
                             <h3 className="font-semibold">
