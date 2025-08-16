@@ -71,16 +71,25 @@ type PublishTask struct {
 
 // CrawlerTask 爬取任务模型
 type CrawlerTask struct {
-	ID          primitive.ObjectID `bson:"_id" json:"id"`
-	Platform    string             `bson:"platform" json:"platform"`
-	CreatorURL  string             `bson:"creator_url" json:"creator_url"`
-	Limit       int                `bson:"limit" json:"limit"`
-	Status      string             `bson:"status" json:"status"` // pending, running, completed, failed
-	Error       string             `bson:"error,omitempty" json:"error,omitempty"`
-	StartedAt   *time.Time         `bson:"started_at,omitempty" json:"started_at,omitempty"`
-	CompletedAt *time.Time         `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	ID            primitive.ObjectID `bson:"_id" json:"id"`
+	TaskID        string             `bson:"task_id" json:"task_id"`
+	Platform      string             `bson:"platform" json:"platform"`
+	InstanceID    string             `bson:"instance_id,omitempty" json:"instance_id,omitempty"`
+	SessionID     string             `bson:"session_id,omitempty" json:"session_id,omitempty"`
+	TaskType      string             `bson:"task_type,omitempty" json:"task_type,omitempty"`
+	URL           string             `bson:"url" json:"url"`
+	AutoTriggered bool               `bson:"auto_triggered" json:"auto_triggered"`
+	TriggerReason string             `bson:"trigger_reason,omitempty" json:"trigger_reason,omitempty"`
+	Status        string             `bson:"status" json:"status"` // pending, running, completed, failed
+	Result        map[string]interface{} `bson:"result,omitempty" json:"result,omitempty"`
+	Error         string             `bson:"error,omitempty" json:"error,omitempty"`
+	StartedAt     *time.Time         `bson:"started_at,omitempty" json:"started_at,omitempty"`
+	UpdatedAt     *time.Time         `bson:"updated_at,omitempty" json:"updated_at,omitempty"`
+	CompletedAt   *time.Time         `bson:"completed_at,omitempty" json:"completed_at,omitempty"`
+	CreatedAt     time.Time          `bson:"created_at" json:"created_at"`
+	// Legacy fields for backward compatibility
+	CreatorURL    string             `bson:"creator_url,omitempty" json:"creator_url,omitempty"`
+	Limit         int                `bson:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CrawlerContent 爬取内容模型

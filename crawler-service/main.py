@@ -36,6 +36,10 @@ from mcp_crawl4ai_integration import (
 # 登录状态管理模块
 from login_state import initialize_managers, shutdown_managers, router as login_state_router
 
+# 去重系统集成
+from deduplication.integration import DeduplicationIntegrationService, get_deduplication_service, cleanup_deduplication_service
+from deduplication.engine import DuplicationResult, DuplicateType
+
 # Windows上的asyncio事件循环策略修复
 if platform.system() == 'Windows':
     # 使用ProactorEventLoopPolicy来兼容Playwright，因为SelectorEventLoop不支持subprocess
@@ -263,6 +267,9 @@ class UnifiedCrawlerService:
         # MCP related
         self.mcp_processor = None
         self.mcp_enabled = mcp_config.get('mcp_services', {}).get('enabled', False)
+        # 去重系统
+        self.dedup_service: Optional[DeduplicationIntegrationService] = None
+        self.dedup_enabled = True  # 默认启用去重系统
         
     async def ensure_initialized(self):
         """Ensure service is initialized"""
@@ -316,7 +323,21 @@ class UnifiedCrawlerService:
                     logger.error(f"MCP processor initialization failed: {e}")
                     self.mcp_enabled = False
             
-            logger.info(f"Unified crawler service initialized successfully (MCP: {'enabled' if self.mcp_enabled else 'disabled'})")
+            # Initialize deduplication service (if enabled)
+            if self.dedup_enabled:
+                try:
+                    from storage import get_database
+                    db = await get_database()
+                    self.dedup_service = await get_deduplication_service(
+                        db=db,
+                        redis_url="redis://localhost:6379"
+                    )
+                    logger.info("去重系统初始化成功")
+                except Exception as e:
+                    logger.error(f"去重系统初始化失败: {e}")
+                    self.dedup_enabled = False
+            
+            logger.info(f"Unified crawler service initialized successfully (MCP: {'enabled' if self.mcp_enabled else 'disabled'}, 去重: {'enabled' if self.dedup_enabled else 'disabled'})")
         except Exception as e:
             logger.error(f"Failed to initialize crawler service: {e}")
             raise
@@ -332,6 +353,9 @@ class UnifiedCrawlerService:
             if self.mcp_processor:
                 await cleanup_mcp_crawl4ai_processor()
                 await cleanup_mcp_manager()
+            # Clean up deduplication service
+            if self.dedup_service:
+                await cleanup_deduplication_service()
             logger.info("Unified crawler service cleanup completed")
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
@@ -452,7 +476,7 @@ class UnifiedCrawlerService:
                 continue
         
         # Deduplication and quality filtering
-        filtered_results = self._filter_and_deduplicate(results, creator_url)
+        filtered_results = await self._filter_and_deduplicate(results, creator_url)
         
         return filtered_results[:limit]
 
@@ -3619,8 +3643,61 @@ class UnifiedCrawlerService:
         
         return list(set(tags))[:10]  # 去重并限制数量
 
-    def _filter_and_deduplicate(self, results: List[PostData], query: str) -> List[PostData]:
-        """过滤和去重结果，确保返回最新的高质量内容"""
+    async def _filter_and_deduplicate(self, results: List[PostData], query: str, task_id: str = None) -> List[PostData]:
+        """过滤和去重结果，使用新的去重系统"""
+        if not results:
+            return []
+        
+        try:
+            # 如果去重系统未启用，使用原有逻辑
+            if not self.dedup_enabled or not self.dedup_service:
+                return self._legacy_filter_and_deduplicate(results, query)
+            
+            # 创建任务上下文
+            if task_id:
+                await self.dedup_service.create_task_context(task_id)
+            
+            # 使用新去重系统进行去重检查
+            filtered_results = []
+            for result in results:
+                # 构建去重检查数据
+                dedup_data = {
+                    'url': result.url,
+                    'title': result.title,
+                    'content': result.content,
+                    'author': result.author,
+                    'publish_time': result.published_at.isoformat() if result.published_at else ''
+                }
+                
+                # 检查是否重复
+                dup_result = await self.dedup_service.check_duplicate(
+                    task_id=task_id or 'default',
+                    data=dedup_data
+                )
+                
+                # 如果不是重复内容，进行质量检查
+                if not dup_result.is_duplicate:
+                    if self._is_quality_content_postdata(result, query):
+                        filtered_results.append(result)
+                else:
+                    logger.debug(f"内容重复 ({dup_result.duplicate_type.value}): {result.title[:50]}")
+            
+            # 按发布时间排序，返回最新的10条
+            sorted_results = sorted(
+                filtered_results, 
+                key=lambda x: x.published_at or datetime.now() - timedelta(days=365),
+                reverse=True
+            )
+            
+            return sorted_results[:10]
+            
+        except Exception as e:
+            logger.error(f"新去重系统出错: {e}")
+            # 降级到原有逻辑
+            return self._legacy_filter_and_deduplicate(results, query)
+    
+    def _legacy_filter_and_deduplicate(self, results: List[PostData], query: str) -> List[PostData]:
+        """原有的过滤和去重逻辑（降级使用）"""
         if not results:
             return []
         
@@ -3649,7 +3726,7 @@ class UnifiedCrawlerService:
         return sorted_results[:10]
     
     def _deduplicate_by_content(self, results: List[PostData]) -> List[PostData]:
-        """基于内容相似度去重"""
+        """基于内容相似度去重（原有逻辑）"""
         if not results:
             return []
         
@@ -3669,39 +3746,43 @@ class UnifiedCrawlerService:
         
         return deduplicated
     
+    def _is_quality_content_postdata(self, result: PostData, query: str) -> bool:
+        """检查PostData内容是否符合质量标准"""
+        # 基本质量检查
+        if (len(result.title) < 3 or 
+            len(result.content) < 10 or
+            not result.title.strip() or
+            not result.content.strip()):
+            return False
+        
+        # 检查是否包含查询关键词（提高相关性）
+        query_lower = query.lower()
+        title_lower = result.title.lower()
+        content_lower = result.content.lower()
+        
+        # 计算相关性得分
+        relevance_score = 0
+        if query_lower in title_lower:
+            relevance_score += 3
+        if query_lower in content_lower:
+            relevance_score += 1
+        
+        # 检查常见关键词
+        for word in query_lower.split():
+            if word in title_lower:
+                relevance_score += 2
+            if word in content_lower:
+                relevance_score += 1
+        
+        # 只保留有一定相关性的内容
+        return relevance_score > 0
+    
     def _filter_by_quality(self, results: List[PostData], query: str) -> List[PostData]:
-        """质量过滤，移除低质量内容"""
+        """质量过滤，移除低质量内容（原有逻辑）"""
         filtered = []
         
         for result in results:
-            # 基本质量检查
-            if (len(result.title) < 3 or 
-                len(result.content) < 10 or
-                not result.title.strip() or
-                not result.content.strip()):
-                continue
-            
-            # 检查是否包含查询关键词（提高相关性）
-            query_lower = query.lower()
-            title_lower = result.title.lower()
-            content_lower = result.content.lower()
-            
-            # 计算相关性得分
-            relevance_score = 0
-            if query_lower in title_lower:
-                relevance_score += 3
-            if query_lower in content_lower:
-                relevance_score += 1
-            
-            # 检查常见关键词
-            for word in query_lower.split():
-                if word in title_lower:
-                    relevance_score += 2
-                if word in content_lower:
-                    relevance_score += 1
-            
-            # 只保留有一定相关性的内容
-            if relevance_score > 0 or len(filtered) < 3:  # 至少保留3条，即使相关性不高
+            if self._is_quality_content_postdata(result, query) or len(filtered) < 3:
                 filtered.append(result)
         
         return filtered
@@ -4385,7 +4466,7 @@ class UnifiedCrawlerService:
             processed_posts = self._process_post_timestamps(posts)
             
             # 去重和质量过滤
-            filtered_posts = self._filter_and_deduplicate(processed_posts, creator_url)
+            filtered_posts = await self._filter_and_deduplicate(processed_posts, creator_url, task_id=request.task_id if hasattr(request, 'task_id') else None)
             
             # 确保返回最新的limit条
             return filtered_posts[:limit]

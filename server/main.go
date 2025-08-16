@@ -12,6 +12,7 @@ import (
 	"context"
 	"newshub/config"
 	"newshub/crawler"
+	"newshub/deduplication"
 	"newshub/handlers"
 	"newshub/middleware"
 	"newshub/utils"
@@ -103,6 +104,12 @@ func main() {
 	// 创建任务处理器
 	taskHandler := handlers.NewTaskHandler(taskScheduler)
 
+	// 创建去重服务
+	deduplicationService := deduplication.NewDeduplicationService(config.GetDB())
+
+	// 创建去重处理器
+	dedupHandler := handlers.NewDeduplicationHandler()
+
 	// API路由
 	api := r.Group("/api")
 	{
@@ -163,6 +170,25 @@ func main() {
 
 		// 爬虫Worker接口（供Python服务调用）
 		api.GET("/worker/next-task", taskHandler.GetNextTask)
+
+		// 去重系统接口
+		api.GET("/deduplication/stats", dedupHandler.GetStats)
+		api.GET("/deduplication/health", dedupHandler.HealthCheck)
+		api.POST("/deduplication/enabled", dedupHandler.SetEnabled)
+		api.POST("/deduplication/indexes", dedupHandler.CreateIndexes)
+		api.POST("/deduplication/check", dedupHandler.CheckDuplicate)
+		api.POST("/deduplication/batch-check", dedupHandler.BatchCheckDuplicate)
+
+		// 监控系统API
+		monitoringHandler := handlers.NewMonitoringHandler(deduplicationService)
+		api.GET("/monitoring/stats", monitoringHandler.GetSystemStats)
+		api.GET("/monitoring/health", monitoringHandler.GetDeduplicationHealth)
+		api.PUT("/monitoring/deduplication/enabled", monitoringHandler.SetDeduplicationEnabled)
+		api.POST("/monitoring/deduplication/indexes", monitoringHandler.CreateDeduplicationIndexes)
+		api.GET("/monitoring/metrics", monitoringHandler.GetMetrics)
+		api.GET("/monitoring/alerts", monitoringHandler.GetAlerts)
+		api.PUT("/monitoring/alerts/:id/resolve", monitoringHandler.ResolveAlert)
+		api.POST("/monitoring/stats/reset", monitoringHandler.ResetStats)
 	}
 
 	// 加载配置文件

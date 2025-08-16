@@ -237,18 +237,24 @@ class CookieDocument(BaseModel):
 
 class CrawlTaskDocument(BaseModel):
     """Crawl task document schema for MongoDB"""
-    task_id: str
-    session_id: str
-    user_id: str
-    platform: str
-    url: str
-    request_data: Dict[str, Any] = Field(default_factory=dict)
-    status: str = CrawlTaskStatus.PENDING
-    result_data: Dict[str, Any] = Field(default_factory=dict)
-    error_message: Optional[str] = None
-    created_at: datetime
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    task_id: str = Field(..., description="Unique task identifier")
+    session_id: str = Field(..., description="Session ID associated with this task")
+    user_id: str = Field(..., description="User ID who initiated the task")
+    platform: str = Field(..., description="Platform to crawl (weibo, xiaohongshu, douyin)")
+    instance_id: Optional[str] = Field(default=None, description="Browser instance ID")
+    task_type: Optional[str] = Field(default="manual_crawl", description="Type of crawl task")
+    url: str = Field(..., description="URL to crawl")
+    auto_triggered: bool = Field(default=False, description="Whether task was automatically triggered")
+    trigger_reason: Optional[str] = Field(default=None, description="Reason for automatic triggering")
+    request_data: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional request data")
+    status: CrawlTaskStatus = Field(default=CrawlTaskStatus.PENDING, description="Task status")
+    result: Optional[Dict[str, Any]] = Field(default=None, description="Crawl result data with task details")
+    result_data: Optional[Dict[str, Any]] = Field(default=None, description="Legacy crawl result data")
+    error_message: Optional[str] = Field(default=None, description="Error message if task failed")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Task creation time")
+    started_at: Optional[datetime] = Field(default=None, description="Task start time")
+    updated_at: Optional[datetime] = Field(default=None, description="Task last update time")
+    completed_at: Optional[datetime] = Field(default=None, description="Task completion time")
     processing_time: Optional[float] = None
     retry_count: int = 0
     max_retries: int = 3

@@ -102,7 +102,7 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 		Limit:      triggerReq.Limit,
 		Status:     "pending",
 		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		UpdatedAt:  &[]time.Time{time.Now()}[0],
 	}
 
 	// 保存任务到数据库
@@ -303,7 +303,7 @@ func updateTaskStatus(taskID primitive.ObjectID, status string, errorMsg string)
 
 	update := map[string]interface{}{
 		"status":     status,
-		"updated_at": time.Now(),
+		"updated_at": &[]time.Time{time.Now()}[0],
 	}
 
 	if errorMsg != "" {

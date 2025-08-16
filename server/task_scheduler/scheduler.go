@@ -207,6 +207,10 @@ func (ts *TaskScheduler) ScheduleTask(task *CrawlTask) error {
 	if task.ID == "" {
 		task.ID = uuid.New().String()
 	}
+	// 设置TaskID字段（与ID保持一致）
+	if task.TaskID == "" {
+		task.TaskID = task.ID
+	}
 
 	// 设置默认值
 	ts.setTaskDefaults(task)

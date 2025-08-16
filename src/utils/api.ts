@@ -388,6 +388,86 @@ export const crawlerApi = {
   },
 };
 
+// 爬取任务相关API (crawl_tasks集合)
+export const crawlTasksApi = {
+  list: async (params?: {
+    platform?: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.platform) searchParams.append('platform', params.platform);
+    if (params?.status) searchParams.append('status', params.status);
+    if (params?.search) searchParams.append('search', params.search);
+    if (params?.page) searchParams.append('page', params.page.toString());
+    if (params?.limit) searchParams.append('limit', params.limit.toString());
+    
+    const response = await fetch(`${BACKEND_API_URL}/tasks?${searchParams}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch crawl tasks');
+    }
+    return response.json();
+  },
+
+  get: async (id: string) => {
+    const response = await fetch(`${BACKEND_API_URL}/tasks/${id}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch crawl task');
+    }
+    return response.json();
+  },
+
+  create: async (data: any) => {
+    const response = await fetch(`${BACKEND_API_URL}/tasks`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to create crawl task');
+    }
+    return response.json();
+  },
+
+  delete: async (id: string) => {
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to delete crawl task');
+    }
+    return response.json();
+  },
+
+  execute: async (id: string) => {
+    const response = await fetch(`${BACKEND_API_URL}/tasks/${id}/execute`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      throw new Error('Failed to execute crawl task');
+    }
+    return response.json();
+  },
+
+  updateStatus: async (id: string, status: string, result?: any) => {
+    const response = await fetch(`${BACKEND_API_URL}/tasks/${id}/status`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ status, result }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update task status');
+    }
+    return response.json();
+  },
+};
+
 // 内容相关API
 export const postApi = {
   list: async (params?: { creatorId?: string; platform?: string; limit?: number }) => {

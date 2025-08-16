@@ -18,23 +18,28 @@ const (
 
 // CrawlTask 爬虫任务结构
 type CrawlTask struct {
-	ID          string                 `json:"id" bson:"_id"`
-	URL         string                 `json:"url" bson:"url"`
-	Platform    string                 `json:"platform" bson:"platform"`
-	SessionID   string                 `json:"session_id" bson:"session_id"`
-	Priority    int                    `json:"priority" bson:"priority"`
-	MaxRetries  int                    `json:"max_retries" bson:"max_retries"`
-	RetryCount  int                    `json:"retry_count" bson:"retry_count"`
-	Status      TaskStatus             `json:"status" bson:"status"`
-	CreatedAt   time.Time              `json:"created_at" bson:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at" bson:"updated_at"`
-	StartedAt   *time.Time             `json:"started_at,omitempty" bson:"started_at,omitempty"`
-	CompletedAt *time.Time             `json:"completed_at,omitempty" bson:"completed_at,omitempty"`
-	WorkerID    string                 `json:"worker_id,omitempty" bson:"worker_id,omitempty"`
-	ExecutionTime float64              `json:"execution_time,omitempty" bson:"execution_time,omitempty"`
-	Result      *CrawlResult           `json:"result,omitempty" bson:"result,omitempty"`
-	Error       string                 `json:"error,omitempty" bson:"error,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata" bson:"metadata"`
+	ID            string                 `json:"id" bson:"_id"`
+	TaskID        string                 `json:"task_id" bson:"task_id"`
+	InstanceID    string                 `json:"instance_id" bson:"instance_id"`
+	URL           string                 `json:"url" bson:"url"`
+	Platform      string                 `json:"platform" bson:"platform"`
+	SessionID     string                 `json:"session_id" bson:"session_id"`
+	TaskType      string                 `json:"task_type" bson:"task_type"`
+	AutoTriggered bool                   `json:"auto_triggered" bson:"auto_triggered"`
+	TriggerReason string                 `json:"trigger_reason" bson:"trigger_reason"`
+	Priority      int                    `json:"priority" bson:"priority"`
+	MaxRetries    int                    `json:"max_retries" bson:"max_retries"`
+	RetryCount    int                    `json:"retry_count" bson:"retry_count"`
+	Status        TaskStatus             `json:"status" bson:"status"`
+	CreatedAt     time.Time              `json:"created_at" bson:"created_at"`
+	UpdatedAt     time.Time              `json:"updated_at" bson:"updated_at"`
+	StartedAt     *time.Time             `json:"started_at,omitempty" bson:"started_at,omitempty"`
+	CompletedAt   *time.Time             `json:"completed_at,omitempty" bson:"completed_at,omitempty"`
+	WorkerID      string                 `json:"worker_id,omitempty" bson:"worker_id,omitempty"`
+	ExecutionTime float64                `json:"execution_time,omitempty" bson:"execution_time,omitempty"`
+	Result        *CrawlResult           `json:"result,omitempty" bson:"result,omitempty"`
+	Error         string                 `json:"error,omitempty" bson:"error,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata" bson:"metadata"`
 }
 
 // CrawlResult 爬虫结果结构
@@ -64,12 +69,16 @@ type TaskMetrics struct {
 
 // TaskRequest 任务请求结构
 type TaskRequest struct {
-	URL        string                 `json:"url" binding:"required"`
-	Platform   string                 `json:"platform" binding:"required"`
-	SessionID  string                 `json:"session_id" binding:"required"`
-	Priority   int                    `json:"priority"`
-	MaxRetries int                    `json:"max_retries"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	URL           string                 `json:"url" binding:"required"`
+	Platform      string                 `json:"platform" binding:"required"`
+	SessionID     string                 `json:"session_id" binding:"required"`
+	InstanceID    string                 `json:"instance_id"`
+	TaskType      string                 `json:"task_type"`
+	AutoTriggered bool                   `json:"auto_triggered"`
+	TriggerReason string                 `json:"trigger_reason"`
+	Priority      int                    `json:"priority"`
+	MaxRetries    int                    `json:"max_retries"`
+	Metadata      map[string]interface{} `json:"metadata"`
 }
 
 // TaskResponse 任务响应结构

@@ -17,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"newshub/config"
+	"newshub/deduplication"
 	"newshub/models"
 )
 
@@ -43,8 +44,8 @@ func CreateCrawlerTask(c *gin.Context) {
 		CreatorURL: req.CreatorURL,
 		Limit:      req.Limit,
 		Status:     "pending",
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		CreatedAt:     time.Now(),
+		UpdatedAt:     &[]time.Time{time.Now()}[0],
 	}
 
 	db := config.GetDB()
@@ -298,7 +299,7 @@ func BatchDeleteCrawlerTasks(c *gin.Context) {
 
 	log.Printf("批量删除完成: 删除了 %d 个任务和 %d 条内容", taskResult.DeletedCount, contentResult.DeletedCount)
 	c.JSON(http.StatusOK, gin.H{
-		"message":              "批量删除成功",
+		"message":               "批量删除成功",
 		"deleted_tasks_count":   taskResult.DeletedCount,
 		"deleted_content_count": contentResult.DeletedCount,
 	})
@@ -361,6 +362,9 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// 初始化去重服务
+	dedupService := deduplication.NewDeduplicationService(db)
+
 	var contents []interface{}
 	duplicateCount := 0
 
@@ -376,20 +380,45 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 		combinedContent := title + "|" + contentText
 		contentHash := generateContentHash(combinedContent)
 
-		// 检查内容是否已存在（基于哈希）
+		// 构造内容项用于去重检查
 		platform := getStringValue(postMap, "platform")
 		author := getStringValue(postMap, "author")
 		url := getStringValue(postMap, "url")
 
-		isDuplicate, err := checkContentDuplicate(ctx, db, contentHash, platform, author, url)
-		if err != nil {
-			log.Printf("检查内容重复失败: %v", err)
-			continue
+		contentItem := &deduplication.ContentItem{
+			Title:       title,
+			Content:     contentText,
+			URL:         url,
+			Platform:    platform,
+			Author:      author,
+			ContentHash: contentHash,
 		}
 
-		if isDuplicate {
+		// 处理发布时间
+		if publishedAt := getStringValue(postMap, "published_at"); publishedAt != "" {
+			if t, err := time.Parse(time.RFC3339, publishedAt); err == nil {
+				contentItem.PublishedAt = &t
+			}
+		}
+
+		// 使用新的去重系统检查重复
+		dupResult, err := dedupService.CheckDuplicate(ctx, contentItem)
+		if err != nil {
+			log.Printf("去重检查失败: %v", err)
+			// 降级到原有逻辑
+			isDuplicate, legacyErr := checkContentDuplicate(ctx, db, contentHash, platform, author, url)
+			if legacyErr != nil {
+				log.Printf("降级去重检查也失败: %v", legacyErr)
+				continue
+			}
+			if isDuplicate {
+				duplicateCount++
+				log.Printf("跳过重复内容(降级检查): hash=%s, title=%s", contentHash[:8], title)
+				continue
+			}
+		} else if dupResult.IsDuplicate {
 			duplicateCount++
-			log.Printf("跳过重复内容: hash=%s, title=%s", contentHash[:8], title)
+			log.Printf("跳过重复内容: type=%s, reason=%s, title=%s", dupResult.DuplicateType, dupResult.Reason, title)
 			continue
 		}
 

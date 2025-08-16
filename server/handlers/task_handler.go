@@ -51,12 +51,16 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 
 	// 创建CrawlTask
 	task := &task_scheduler.CrawlTask{
-		URL:        req.URL,
-		Platform:   req.Platform,
-		SessionID:  req.SessionID,
-		Priority:   req.Priority,
-		MaxRetries: req.MaxRetries,
-		Metadata:   req.Metadata,
+		URL:           req.URL,
+		Platform:      req.Platform,
+		SessionID:     req.SessionID,
+		InstanceID:    req.InstanceID,
+		TaskType:      req.TaskType,
+		AutoTriggered: req.AutoTriggered,
+		TriggerReason: req.TriggerReason,
+		Priority:      req.Priority,
+		MaxRetries:    req.MaxRetries,
+		Metadata:      req.Metadata,
 	}
 
 	// 调度任务
