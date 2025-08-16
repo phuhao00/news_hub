@@ -46,6 +46,8 @@ class CreateSessionRequest(BaseModel):
     headless: bool = Field(default=False, description="Whether to run browser in headless mode")
     browser_config: Optional[Dict[str, Any]] = Field(default=None, description="Custom browser configuration")
     session_timeout_hours: int = Field(default=24, ge=1, le=168, description="Session timeout in hours")
+    # 允许携带自定义元信息（例如 platform_alias: 'x'）
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Extra metadata for the session, e.g. platform_alias")
     
     @validator('user_id')
     def validate_user_id(cls, v):

@@ -81,6 +81,14 @@ async def create_session(
             platform=request.platform.value,
             browser_config=request.browser_config
         )
+        # 合并传入的 metadata（例如 platform_alias），以便前端展示与后续逻辑使用
+        if request.metadata:
+            from copy import deepcopy
+            merged = deepcopy(session_data.get("metadata", {}))
+            merged.update(request.metadata)
+            session_data["metadata"] = merged
+            # 立即持久化到数据库
+            await sm.db.sessions.update_one({"session_id": session_data["session_id"]}, {"$set": {"metadata": merged}})
         
         # Extend session if custom timeout is specified
         if request.session_timeout_hours != 24:

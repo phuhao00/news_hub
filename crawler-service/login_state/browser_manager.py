@@ -406,10 +406,24 @@ class BrowserInstanceManager(LoggerMixin):
                 platform_urls = {
                     "weibo": "https://weibo.com",
                     "xiaohongshu": "https://www.xiaohongshu.com",
-                    "douyin": "https://www.douyin.com"
+                    "douyin": "https://www.douyin.com",
+                    # note: for custom platforms, prefer custom_config.default_url
                 }
-                
-                default_url = platform_urls.get(platform, "https://www.baidu.com")
+
+                # Prefer default_url from custom_config when provided (e.g., X/Twitter)
+                default_url = None
+                try:
+                    if isinstance(custom_config, dict):
+                        default_url = custom_config.get("default_url")
+                except Exception:
+                    default_url = None
+
+                if not default_url:
+                    default_url = platform_urls.get(platform)
+
+                # Final fallback to a blank page to avoid navigating to unrelated sites
+                if not default_url:
+                    default_url = "about:blank"
                 page_url = "about:blank"  # Default to blank page
                 try:
                     logger.info(f"Attempting to navigate to {default_url} for platform {platform}")

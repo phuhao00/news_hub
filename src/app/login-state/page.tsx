@@ -460,6 +460,7 @@ export default function LoginStatePage() {
             headless: false,
             viewport: { width: 1920, height: 1080 }
           },
+          // 传递别名，后端将持久化到 session.metadata
           metadata: isX ? { platform_alias: 'x' } : undefined
         })
       });
@@ -476,13 +477,19 @@ export default function LoginStatePage() {
   // 创建浏览器实例
   const createBrowserInstance = async (sessionId: string) => {
     try {
+      // 从会话中取平台与别名，若自定义且别名为x，则传递默认首页
+      const session = sessions.find(s => s.session_id === sessionId);
+      const alias = session?.metadata?.platform_alias as string | undefined;
+      const defaultUrl = (session?.platform === 'custom' && alias === 'x') ? 'https://x.com' : undefined;
+
       const result = await apiCall('/browser-instances', {
         method: 'POST',
         body: JSON.stringify({
           session_id: sessionId,
           headless: false,
           custom_config: {
-            viewport: { width: 1920, height: 1080 }
+            viewport: { width: 1920, height: 1080 },
+            ...(defaultUrl ? { default_url: defaultUrl } : {})
           }
         })
       });
@@ -933,7 +940,7 @@ export default function LoginStatePage() {
                       <SelectValue placeholder="选择要登录的平台" />
                     </SelectTrigger>
                     <SelectContent className="w-64">
-                      {PLATFORMS.map(platform => (
+                      {PLATFORMS.filter(p => p.value !== 'custom').map(platform => (
                         <SelectItem key={platform.value} value={platform.value}>
                           {platform.icon} {platform.label}
                         </SelectItem>
