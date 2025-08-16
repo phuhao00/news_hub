@@ -50,6 +50,7 @@ const platformOptions = [
   { value: 'douyin', label: '抖音' },
   { value: 'xiaohongshu', label: '小红书' },
   { value: 'bilibili', label: 'B站' },
+  { value: 'x', label: 'X/Twitter' },
 ];
 
 export default function CrawlerPage() {

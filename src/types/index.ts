@@ -1,5 +1,5 @@
 // 支持的社交平台类型
-export type SocialPlatform = 'weibo' | 'douyin' | 'xiaohongshu' | 'bilibili';
+export type SocialPlatform = 'weibo' | 'douyin' | 'xiaohongshu' | 'bilibili' | 'x';
 
 // 内容创作者信息
 export interface Creator {
