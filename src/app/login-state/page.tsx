@@ -528,12 +528,24 @@ export default function LoginStatePage() {
         return;
       }
 
+      // 若是 custom + alias x，确保不是误判首页/搜索引擎等非目标域名
+      const session = sessions.find(s => s.session_id === instance.session_id);
+      const alias = session?.metadata?.platform_alias as string | undefined;
+      const urlToUse = (() => {
+        const u = instance.current_url;
+        if (alias === 'x' && u && !(u.includes('x.com') || u.includes('twitter.com'))) {
+          toast.message('检测到非 X 域名，已阻止抽取，请先打开具体帖子页 (x.com/...)');
+          throw new Error('当前页面不是 X/Twitter 域名');
+        }
+        return u;
+      })();
+
       // 1) 创建手动爬取任务
       const createResp = await apiCall('/crawl/create', {
         method: 'POST',
         body: JSON.stringify({
           session_id: instance.session_id,
-          url: instance.current_url,
+          url: urlToUse,
           extract_content: true,
           extract_links: true,
           extract_images: true,
