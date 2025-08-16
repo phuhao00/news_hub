@@ -204,6 +204,11 @@ class IndexManager:
                     unique=True,
                     sparse=True
                 ),
+                # 标题+平台+创建时间 复合索引（用于同平台标题时间窗去重）
+                IndexInfo(
+                    name="title_1_platform_1_created_at_-1",
+                    keys=[("title", 1), ("platform", 1), ("created_at", -1)]
+                ),
                 # URL索引
                 IndexInfo(
                     name="url_1",
@@ -495,6 +500,22 @@ class IndexManager:
         except Exception as e:
             self.logger.error(f"优化单个查询执行失败: {e}")
             raise
+
+    async def get_content_by_title_platform_time(self,
+                                                 title: str,
+                                                 platform: str,
+                                                 since: datetime) -> Optional[Dict[str, Any]]:
+        """查询同平台同标题在时间窗口内是否存在"""
+        try:
+            query = {
+                'title': title,
+                'platform': platform,
+                'created_at': {'$gte': since}
+            }
+            return await self.find_one_with_optimization('crawler_contents', query)
+        except Exception as e:
+            self.logger.error(f"按标题/平台/时间查询失败: {e}")
+            return None
     
     async def count_with_optimization(self, 
                                     collection_name: str, 

@@ -18,12 +18,20 @@ print('创建 posts 索引完成');
 db.crawler_tasks.createIndex({ "platform": 1, "creator_url": 1, "status": 1 });
 db.crawler_tasks.createIndex({ "created_at": -1 });
 db.crawler_tasks.createIndex({ "status": 1 });
+// 为按完成时间倒序查询最近完成任务提供支持
+db.crawler_tasks.createIndex({ "platform": 1, "creator_url": 1, "status": 1, "completed_at": -1 });
+// 任务结果中的标题（嵌套字段）+平台+完成时间，用于按标题分析或排查
+db.crawler_tasks.createIndex({ "result.title": 1, "platform": 1, "completed_at": -1 });
 print('创建 crawler_tasks 索引完成');
 
 // 爬虫内容集合索引 - 重要的去重索引
 db.crawler_contents.createIndex({ "content_hash": 1 }, { unique: true });
 db.crawler_contents.createIndex({ "url": 1, "platform": 1 }, { unique: true, sparse: true });
 db.crawler_contents.createIndex({ "origin_id": 1, "platform": 1 }, { unique: true, sparse: true });
+// 标题+平台+时间，便于在 24h 时间窗口内做标题重复判定
+db.crawler_contents.createIndex({ "title": 1, "platform": 1, "created_at": -1 });
+// 标题+作者+平台+时间，支持更精细的去重（若存在）
+db.crawler_contents.createIndex({ "title": 1, "author": 1, "platform": 1, "created_at": -1 });
 db.crawler_contents.createIndex({ "platform": 1 });
 db.crawler_contents.createIndex({ "published_at": -1 });
 db.crawler_contents.createIndex({ "created_at": -1 });

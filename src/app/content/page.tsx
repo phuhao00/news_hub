@@ -6,7 +6,8 @@ import { useToast } from '@/components/Toast';
 import { Trash2, Search, Filter, RefreshCw, Eye, Calendar, Clock, User, Tag, Image, Video, ExternalLink } from 'lucide-react';
 
 interface CrawlTask {
-  _id: string;
+  id?: string;
+  _id?: string;
   task_id: string;
   platform: string;
   instance_id?: string;
@@ -305,9 +306,10 @@ export default function ContentPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {filteredTasks.map((task) => {
+            {filteredTasks.map((task, index) => {
               return (
-                <div key={task._id} className="aws-card p-6 hover:shadow-lg transition-shadow">
+                <div key={task.id || task._id || task.task_id || `${task.url}-${index}`}
+                     className="aws-card p-6 hover:shadow-lg transition-shadow">
                   {/* 头部信息 */}
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-3">
@@ -459,8 +461,8 @@ export default function ContentPage() {
                         <div className="mb-2">
                           <span className="font-medium text-blue-800">标签:</span>
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {task.result.tags.map((tag, index) => (
-                              <span key={`${task._id}-tag-${tag}-${index}`} className="px-2 py-1 bg-blue-200 text-blue-800 rounded text-xs">
+                            {task.result.tags.map((tag, tIdx) => (
+                              <span key={`${task.id || task._id || index}-tag-${tag}-${tIdx}`} className="px-2 py-1 bg-blue-200 text-blue-800 rounded text-xs">
                                 {tag}
                               </span>
                             ))}
@@ -477,8 +479,8 @@ export default function ContentPage() {
                         <div className="mb-2">
                           <span className="font-medium text-blue-800">图片 ({task.result.images.length}):</span>
                           <div className="grid grid-cols-4 gap-2 mt-1">
-                            {task.result.images.slice(0, 4).map((image, index) => (
-                              <img key={`${task._id}-image-${image}-${index}`} src={image} alt={`Image ${index + 1}`} className="w-full h-16 object-cover rounded" />
+                            {task.result.images.slice(0, 4).map((image, imgIdx) => (
+                              <img key={`${task.id || task._id || index}-image-${imgIdx}`} src={image} alt={`Image ${imgIdx + 1}`} className="w-full h-16 object-cover rounded" />
                             ))}
                           </div>
                         </div>
@@ -487,8 +489,8 @@ export default function ContentPage() {
                         <div>
                           <span className="font-medium text-blue-800">视频 ({task.result.videos.length}):</span>
                           <div className="text-blue-700 text-sm mt-1">
-                            {task.result.videos.map((video, index) => (
-                              <div key={`${task._id}-video-${video}-${index}`} className="truncate">{video}</div>
+                            {task.result.videos.map((video, vIdx) => (
+                              <div key={`${task.id || task._id || index}-video-${vIdx}`} className="truncate">{video}</div>
                             ))}
                           </div>
                         </div>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -14,13 +15,13 @@ import (
 
 // DeduplicationService Go后端去重服务
 type DeduplicationService struct {
-	db     *mongo.Database
+	db      *mongo.Database
 	enabled bool
 }
 
 // DuplicateCheckResult 重复检查结果
 type DuplicateCheckResult struct {
-	IsDuplicate bool   `json:"is_duplicate"`
+	IsDuplicate   bool   `json:"is_duplicate"`
 	DuplicateType string `json:"duplicate_type,omitempty"`
 	ExistingID    string `json:"existing_id,omitempty"`
 	Reason        string `json:"reason,omitempty"`
@@ -28,14 +29,14 @@ type DuplicateCheckResult struct {
 
 // ContentItem 内容项
 type ContentItem struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Content     string    `json:"content"`
-	URL         string    `json:"url"`
-	Platform    string    `json:"platform"`
-	Author      string    `json:"author"`
+	ID          string     `json:"id"`
+	Title       string     `json:"title"`
+	Content     string     `json:"content"`
+	URL         string     `json:"url"`
+	Platform    string     `json:"platform"`
+	Author      string     `json:"author"`
 	PublishedAt *time.Time `json:"published_at,omitempty"`
-	ContentHash string    `json:"content_hash"`
+	ContentHash string     `json:"content_hash"`
 }
 
 // NewDeduplicationService 创建去重服务实例
@@ -100,6 +101,20 @@ func (ds *DeduplicationService) CheckDuplicate(ctx context.Context, item *Conten
 				DuplicateType: "title_author",
 				ExistingID:    existingID,
 				Reason:        "标题和作者组合重复",
+			}, nil
+		}
+	}
+
+	// 4. 检查标题重复（同平台、时间窗口内）
+	if normalized := strings.TrimSpace(item.Title); normalized != "" {
+		if isDup, existingID, err := ds.checkTitleDuplicate(ctx, normalized, item.Platform); err != nil {
+			return nil, fmt.Errorf("检查标题重复失败: %w", err)
+		} else if isDup {
+			return &DuplicateCheckResult{
+				IsDuplicate:   true,
+				DuplicateType: "title_platform",
+				ExistingID:    existingID,
+				Reason:        "同平台标题在时间窗口内重复",
 			}, nil
 		}
 	}
@@ -175,6 +190,35 @@ func (ds *DeduplicationService) checkTitleAuthorDuplicate(ctx context.Context, t
 	filter := bson.M{
 		"title":      title,
 		"author":     author,
+		"platform":   platform,
+		"created_at": bson.M{"$gte": timeWindow},
+	}
+
+	var result struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+
+	err := ds.db.Collection("crawler_contents").FindOne(ctx, filter).Decode(&result)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return false, "", nil
+		}
+		return false, "", err
+	}
+
+	return true, result.ID.Hex(), nil
+}
+
+// checkTitleDuplicate 检查同平台标题重复（24小时内）
+func (ds *DeduplicationService) checkTitleDuplicate(ctx context.Context, title, platform string) (bool, string, error) {
+	// 忽略过短/泛化标题，减少误判
+	if len([]rune(strings.TrimSpace(title))) < 6 {
+		return false, "", nil
+	}
+
+	timeWindow := time.Now().Add(-24 * time.Hour)
+	filter := bson.M{
+		"title":      title,
 		"platform":   platform,
 		"created_at": bson.M{"$gte": timeWindow},
 	}
@@ -299,6 +343,15 @@ func (ds *DeduplicationService) CreateIndexes(ctx context.Context) error {
 		},
 	}
 
+	// 创建标题、平台、时间组合索引（用于同平台标题去重）
+	titlePlatformTimeIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "title", Value: 1},
+			{Key: "platform", Value: 1},
+			{Key: "created_at", Value: -1},
+		},
+	}
+
 	// 创建时间索引
 	timeIndex := mongo.IndexModel{
 		Keys: bson.D{{Key: "created_at", Value: -1}},
@@ -308,6 +361,7 @@ func (ds *DeduplicationService) CreateIndexes(ctx context.Context) error {
 		contentHashIndex,
 		urlPlatformIndex,
 		titleAuthorIndex,
+		titlePlatformTimeIndex,
 		timeIndex,
 	}
 

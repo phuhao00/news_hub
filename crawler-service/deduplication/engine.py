@@ -31,6 +31,7 @@ class DuplicateType(Enum):
     CONTENT_HASH_DUPLICATE = "content_hash_duplicate"  # 内容哈希重复
     SEMANTIC_DUPLICATE = "semantic_duplicate"  # 语义相似重复
     TIME_WINDOW_DUPLICATE = "time_window_duplicate"  # 时间窗口重复
+    TITLE_DUPLICATE = "title_duplicate"  # 标题重复（同平台时间窗口）
     NO_DUPLICATE = "no_duplicate"  # 无重复
 
 
@@ -137,7 +138,15 @@ class DeduplicationEngine:
                 result = hash_result
                 return result
             
-            # 4. 语义相似度去重检测
+            # 4. 标题去重（同平台时间窗口内）
+            title_result = await self._check_title_duplicate(
+                context, title, platform
+            )
+            if title_result.is_duplicate:
+                result = title_result
+                return result
+
+            # 5. 语义相似度去重检测
             semantic_result = await self._check_semantic_duplicate(
                 context, content, title
             )
@@ -145,7 +154,7 @@ class DeduplicationEngine:
                 result = semantic_result
                 return result
             
-            # 5. 时间窗口去重检测
+            # 6. 时间窗口去重检测（URL）
             time_result = await self._check_time_window_duplicate(
                 context, url, content
             )

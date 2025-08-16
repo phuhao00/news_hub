@@ -1,0 +1,149 @@
+---
+description: NewsHub 项目工作流/代码规范/启动与调试规则（Cursor 专用）
+globs:
+  - "src/**/*.ts"
+  - "src/**/*.tsx"
+  - "server/**/*.go"
+  - "crawler-service/**/*.py"
+  - "Dockerfile.*"
+  - "docker-compose*.yml"
+  - "package.json"
+  - "README.md"
+  - "PROJECT_STARTUP.md"
+  - "STARTUP_GUIDE.md"
+alwaysApply: true
+---
+
+## 总则
+
+- 本规则面向 NewsHub 单仓多服务项目：前端（Next.js/TypeScript）、后端（Go/Gin/MongoDB/MinIO）、爬虫服务（Python/FastAPI/Playwright）。
+- 在本项目的代码与文档范围内，默认应用这些约定与操作指令，优先保证可运行、可调试、可部署。
+
+## 服务与端口
+
+- 前端 Next.js: http://localhost:3000
+- 后端 Go: 本地开发默认 8081（Docker 环境为 8080）
+- 爬虫服务 Python: http://localhost:8001
+- MinIO: 9000(API)/9001(Console)
+- MongoDB: 本地 27015（Docker 默认为 27017）
+
+## 常用命令（Windows PowerShell 优先）
+
+- 一键启动/停止（推荐）
+```powershell
+./start-all.ps1
+./stop-all.ps1
+```
+
+- 前端（开发/构建/启动/校验）
+```powershell
+npm run dev
+npm run build
+npm start
+npm run lint
+```
+
+- 后端 Go（首次需安装依赖）
+```powershell
+cd server
+go mod tidy
+go run main.go
+```
+
+- 爬虫服务 Python（首次需依赖与浏览器安装）
+```powershell
+cd crawler-service
+pip install -r requirements.txt
+./install-playwright.bat   # 或: python -m playwright install
+python main.py
+```
+
+- 数据与基础设施
+```powershell
+./start-minio.ps1
+./init-database.ps1
+```
+
+- Docker 部署
+```powershell
+docker-compose build
+docker-compose up -d
+docker-compose down
+```
+
+## 环境变量与配置
+
+- 根目录 `.env.local`（示例键）：
+  - `MONGODB_URI`（本地示例：mongodb://localhost:27015）
+  - `DB_NAME=newshub`
+  - `MINIO_ENDPOINT=localhost:9000`
+  - `MINIO_ACCESS_KEY=minioadmin`
+  - `MINIO_SECRET_KEY=minioadmin123`
+  - `MINIO_USE_SSL=false`
+  - `MINIO_BUCKET_NAME=newshub-media`
+  - `PORT=8081`（Go 本地）
+  - `CRAWLER_SERVICE_URL=http://localhost:8001`
+
+- 配置文件：
+  - 根 `config.json`：全局服务端口与数据库连接
+  - `crawler-service/config.json`：爬虫并发、平台开关
+
+## 代码风格与结构
+
+- 通用
+  - 使用有意义且完整的命名；函数用动词短语，变量用名词短语。
+  - 采用卫语句与早返回，优先处理错误与边界；避免超过 2–3 层深度嵌套。
+  - 不捕获后静默丢弃错误；只在能提供上下文与处理的地方捕获。
+  - 仅在必要处添加注释，解释“为什么”而非“如何”。
+
+- TypeScript/Next.js（`src/**`）
+  - 组件/页面放置在 `src/app/**` 与 `src/components/**` 下；公用类型在 `src/types/**`。
+  - 出口 API 显式标注类型；避免 `any`；保持 App Router 约定（`route.ts`）。
+  - UI 采用现有 `ui/*` 组件与 Tailwind；避免重复样式与自建一-off 组件。
+  - 变更后执行：`npm run build` 与 `npm run lint`。
+
+- Go（`server/**`）
+  - HTTP 处理集中于 `server/handlers/**`；中间件在 `server/middleware/**`；配置于 `server/config/**`。
+  - 使用 `context.Context` 贯穿数据访问；错误要携带业务语义并向上返回。
+  - 遵循现有路由前缀 `/api/**`，与前端一致；保持 CORS 允许来源 `http://localhost:3000/3001/3002`。
+  - 变更后执行：`go build`、`go vet`、必要时添加/运行测试。
+
+- Python 爬虫（`crawler-service/**`）
+  - 基于 FastAPI；平台爬虫扩展点位于 `crawlers/platforms.py`，继承 `PlatformCrawler` 并在 `CrawlerFactory` 注册。
+  - 确保 Playwright 已安装；异常与重试策略遵循现有实现。
+  - 变更后可运行 `python test_crawler.py` 做快速回归。
+
+## API 约定（后端）
+
+- 健康与指标：`GET /health`、`GET /metrics`
+- 统一前缀：`/api`，含但不限于：
+  - 创作者：`/creators`
+  - 爬虫任务与内容：`/crawler/**`
+  - 视频：`/videos`、`/videos/generate`
+  - 发布：`/publish/**`
+  - 存储：`/storage/**`
+  - 任务调度：`/tasks/**`
+
+## 提交前自检清单
+
+- 前端：`npm run build && npm run lint` 通过，无 TypeScript/ESLint 报错。
+- 后端：`go build` 与（若有）单测通过；无明显 `panic` 路径与数据竞争。
+- 爬虫：关键路径手动校验运行；必要时最小化重试次数与间隔确保 CI 稳定。
+- 文档：如改动端口、路由、脚本或环境变量，更新 `README.md`/`PROJECT_STARTUP.md`。
+
+## 常见问题速查
+
+- 端口占用：使用 `./stop-all.ps1` 后重启；或 `netstat -ano | findstr :<port>` 排查。
+- Playwright 未安装：执行 `./install-playwright.bat` 或 `python -m playwright install`。
+- Docker 本地端口与本机端口不一致：开发用 8081，本地 Docker 默认 8080；前端 API 环境量需相应调整。
+- MinIO/MongoDB 未就绪：先运行 `./start-minio.ps1` 与 `./init-database.ps1`，确认控制台/端口可达。
+
+## 安全与合规
+
+- 不在代码中硬编码密钥/账号；统一读取环境变量或配置文件。
+- 爬取遵循目标站点服务条款与 robots.txt；对外部站点施加合理限流与重试退避。
+
+## 约束
+
+- 保持文件原有缩进风格（空格/Tab 与宽度）；仅在必要位置最小化编辑范围。
+- 优先复用现有工具函数、UI 组件与目录结构；避免重复造轮子。

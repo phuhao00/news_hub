@@ -24,9 +24,11 @@ import (
 // CreateCrawlerTask 创建爬取任务
 func CreateCrawlerTask(c *gin.Context) {
 	var req struct {
-		Platform   string `json:"platform" binding:"required"`
-		CreatorURL string `json:"creator_url" binding:"required"`
-		Limit      int    `json:"limit"`
+		Platform        string `json:"platform" binding:"required"`
+		CreatorURL      string `json:"creator_url" binding:"required"`
+		Limit           int    `json:"limit"`
+		Force           bool   `json:"force"`
+		CooldownMinutes int    `json:"cooldown_minutes"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -38,21 +40,81 @@ func CreateCrawlerTask(c *gin.Context) {
 		req.Limit = 10
 	}
 
+	// 默认冷却时间（分钟）
+	if req.CooldownMinutes <= 0 {
+		req.CooldownMinutes = 10
+	}
+
 	task := models.CrawlerTask{
 		ID:         primitive.NewObjectID(),
 		Platform:   req.Platform,
 		CreatorURL: req.CreatorURL,
 		Limit:      req.Limit,
 		Status:     "pending",
-		CreatedAt:     time.Now(),
-		UpdatedAt:     &[]time.Time{time.Now()}[0],
+		CreatedAt:  time.Now(),
+		UpdatedAt:  &[]time.Time{time.Now()}[0],
 	}
 
 	db := config.GetDB()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err := db.Collection("crawler_tasks").InsertOne(ctx, task)
+	// 1) 阻止重复任务：如果存在相同 platform+creator_url 的 pending/running 任务，则拒绝创建
+	existingFilter := bson.M{
+		"platform":    req.Platform,
+		"creator_url": req.CreatorURL,
+		"status":      bson.M{"$in": []string{"pending", "running"}},
+	}
+	var existing models.CrawlerTask
+	err := db.Collection("crawler_tasks").FindOne(ctx, existingFilter).Decode(&existing)
+	if err == nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":       "存在未完成的相同爬取任务",
+			"existing_id": existing.ID.Hex(),
+			"status":      existing.Status,
+		})
+		return
+	}
+	if err != mongo.ErrNoDocuments {
+		log.Printf("查询现有任务失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询现有任务失败"})
+		return
+	}
+
+	// 2) 冷却窗口：最近完成的相同任务在冷却窗口内则拒绝（除非 force=true）
+	if !req.Force {
+		completedFilter := bson.M{
+			"platform":     req.Platform,
+			"creator_url":  req.CreatorURL,
+			"status":       "completed",
+			"completed_at": bson.M{"$ne": nil},
+		}
+		findOpts := options.FindOne().SetSort(bson.D{{Key: "completed_at", Value: -1}})
+		var lastCompleted models.CrawlerTask
+		if err := db.Collection("crawler_tasks").FindOne(ctx, completedFilter, findOpts).Decode(&lastCompleted); err == nil {
+			if lastCompleted.CompletedAt != nil {
+				delta := time.Since(*lastCompleted.CompletedAt)
+				cooldown := time.Duration(req.CooldownMinutes) * time.Minute
+				if delta < cooldown {
+					retryAfter := int((cooldown - delta).Seconds())
+					c.JSON(http.StatusConflict, gin.H{
+						"error":               "冷却时间内，暂不允许重复爬取",
+						"last_completed_at":   lastCompleted.CompletedAt,
+						"cooldown_minutes":    req.CooldownMinutes,
+						"retry_after_seconds": retryAfter,
+						"override_with_force": true,
+					})
+					return
+				}
+			}
+		} else if err != mongo.ErrNoDocuments {
+			log.Printf("查询已完成任务失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询已完成任务失败"})
+			return
+		}
+	}
+
+	_, err = db.Collection("crawler_tasks").InsertOne(ctx, task)
 	if err != nil {
 		log.Printf("创建爬取任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建爬取任务失败"})
@@ -374,9 +436,35 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 			continue
 		}
 
-		// 生成内容哈希
-		contentText := getStringValue(postMap, "content")
+		// 提取字段，兼容嵌套结构（如 result.title / metadata.page_title 等）
 		title := getStringValue(postMap, "title")
+		if title == "" {
+			if res, ok := postMap["result"].(map[string]interface{}); ok {
+				title = getStringValue(res, "title")
+			}
+		}
+		if title == "" {
+			if md, ok := postMap["metadata"].(map[string]interface{}); ok {
+				title = getStringValue(md, "page_title")
+			}
+		}
+
+		contentText := getStringValue(postMap, "content")
+		if contentText == "" {
+			if res, ok := postMap["result"].(map[string]interface{}); ok {
+				contentText = getStringValue(res, "content")
+			}
+		}
+		if contentText == "" {
+			if md, ok := postMap["metadata"].(map[string]interface{}); ok {
+				contentText = getStringValue(md, "description")
+				if contentText == "" {
+					contentText = getStringValue(md, "meta_description")
+				}
+			}
+		}
+
+		// 生成内容哈希（标题+内容）
 		combinedContent := title + "|" + contentText
 		contentHash := generateContentHash(combinedContent)
 
@@ -384,6 +472,16 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 		platform := getStringValue(postMap, "platform")
 		author := getStringValue(postMap, "author")
 		url := getStringValue(postMap, "url")
+		if url == "" {
+			if md, ok := postMap["metadata"].(map[string]interface{}); ok {
+				url = getStringValue(md, "url")
+			}
+		}
+		if url == "" {
+			if res, ok := postMap["result"].(map[string]interface{}); ok {
+				url = getStringValue(res, "url")
+			}
+		}
 
 		contentItem := &deduplication.ContentItem{
 			Title:       title,
@@ -395,7 +493,21 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 		}
 
 		// 处理发布时间
-		if publishedAt := getStringValue(postMap, "published_at"); publishedAt != "" {
+		publishedAt := getStringValue(postMap, "published_at")
+		if publishedAt == "" {
+			if md, ok := postMap["metadata"].(map[string]interface{}); ok {
+				publishedAt = getStringValue(md, "crawl_timestamp")
+			}
+		}
+		if publishedAt == "" {
+			if res, ok := postMap["result"].(map[string]interface{}); ok {
+				publishedAt = getStringValue(res, "created_at")
+				if publishedAt == "" {
+					publishedAt = getStringValue(res, "completed_at")
+				}
+			}
+		}
+		if publishedAt != "" {
 			if t, err := time.Parse(time.RFC3339, publishedAt); err == nil {
 				contentItem.PublishedAt = &t
 			}
@@ -445,8 +557,22 @@ func SaveCrawlerContent(taskID primitive.ObjectID, posts []interface{}) error {
 			CreatedAt:   time.Now(),
 		}
 
-		// 处理发布时间
-		if publishedAt := getStringValue(postMap, "published_at"); publishedAt != "" {
+		// 处理发布时间（同上）
+		publishedAt = getStringValue(postMap, "published_at")
+		if publishedAt == "" {
+			if md, ok := postMap["metadata"].(map[string]interface{}); ok {
+				publishedAt = getStringValue(md, "crawl_timestamp")
+			}
+		}
+		if publishedAt == "" {
+			if res, ok := postMap["result"].(map[string]interface{}); ok {
+				publishedAt = getStringValue(res, "created_at")
+				if publishedAt == "" {
+					publishedAt = getStringValue(res, "completed_at")
+				}
+			}
+		}
+		if publishedAt != "" {
 			if t, err := time.Parse(time.RFC3339, publishedAt); err == nil {
 				content.PublishedAt = &t
 			}

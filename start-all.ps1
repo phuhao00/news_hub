@@ -2,6 +2,15 @@
 # NewsHub Complete Startup Script
 # Auto start all services: MinIO, MongoDB, Backend, Frontend, Crawler Service, MCP Servers
 
+param(
+    # 非交互：清空除白名单外集合
+    [switch]$CleanDB,
+    # 交互式询问是否清空
+    [switch]$Interactive,
+    # 白名单集合
+    [string[]]$Keep = @('sessions','login_sessions','platform_configs')
+)
+
 # Set console encoding to UTF-8 to prevent garbled characters
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -40,6 +49,45 @@ function Wait-ForService {
     return $false
 }
 
+# --- Database cleanup helpers ---
+function New-CleanupJsContent {
+    param([string[]]$Keep)
+    $keepList = ($Keep | ForEach-Object { "'$_'" }) -join ","
+    @"
+db = db.getSiblingDB('newshub');
+var keep = [$keepList];
+var total = 0;
+db.getCollectionNames().forEach(function(n){
+  if (keep.indexOf(n) === -1 && !n.startsWith('system.')) {
+    var res = db.getCollection(n).deleteMany({});
+    print('[CLEAN] ' + n + ' deleted_count=' + (res && res.deletedCount ? res.deletedCount : 0));
+    total += 1;
+  } else {
+    print('[SKIP]  ' + n);
+  }
+});
+print('[DONE] processed=' + total);
+"@
+}
+
+function Invoke-DbCleanup {
+    param([string[]]$Keep)
+    Write-Host "Preparing database cleanup script..." -ForegroundColor Yellow
+    $tmp = "cleanup-db.js"
+    New-CleanupJsContent -Keep $Keep | Out-File -FilePath $tmp -Encoding UTF8
+    try {
+        docker cp $tmp newshub-mongodb:/tmp/cleanup-db.js | Out-Null
+        Write-Host "Executing cleanup inside MongoDB container..." -ForegroundColor Yellow
+        docker exec newshub-mongodb mongosh newshub /tmp/cleanup-db.js
+        docker exec newshub-mongodb rm /tmp/cleanup-db.js | Out-Null
+        Write-Host "[SUCCESS] Database cleanup completed." -ForegroundColor Green
+    } catch {
+        Write-Host "[ERROR] Database cleanup failed: $_" -ForegroundColor Red
+    } finally {
+        if (Test-Path $tmp) { Remove-Item $tmp -Force }
+    }
+}
+
 # 1. Start MinIO Docker Container
 Write-Host "\n[1/5] Starting MinIO Docker Container..." -ForegroundColor Cyan
 try {
@@ -61,6 +109,19 @@ try {
     & .\init-database.ps1
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[SUCCESS] MongoDB database started successfully" -ForegroundColor Green
+        # Optional cleanup after Mongo is ready
+        $doCleanup = $false
+        if ($Interactive) {
+            $ans = Read-Host "Do you want to CLEAN database (keep: $($Keep -join ', '))? [y/N]"
+            if ($ans -match '^(y|Y)$') { $doCleanup = $true }
+        } elseif ($CleanDB) {
+            $doCleanup = $true
+        }
+        if ($doCleanup) {
+            Invoke-DbCleanup -Keep $Keep
+        } else {
+            Write-Host "[INFO] Database cleanup skipped." -ForegroundColor Gray
+        }
     } else {
         Write-Host "[ERROR] MongoDB database failed to start" -ForegroundColor Red
         exit 1
