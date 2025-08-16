@@ -525,6 +525,62 @@ class ManualCrawlService:
                 # 回退到html.parser
                 soup = BeautifulSoup(html_content, 'html.parser')
             
+            # 针对 X/Twitter 帖子页的专用提取（custom + x.com/twitter.com）
+            try:
+                if platform == PlatformType.CUSTOM and ("x.com/" in url or "twitter.com/" in url):
+                    article = soup.select_one('article')
+                    # 文本
+                    tweet_text_nodes = soup.select('article [data-testid="tweetText"]')
+                    tweet_text = " ".join([n.get_text(" ", strip=True) for n in tweet_text_nodes]) if tweet_text_nodes else ""
+                    if not tweet_text:
+                        og_desc = soup.select_one('meta[property="og:description"]')
+                        tweet_text = og_desc.get("content", "").strip() if og_desc else ""
+                    # 作者
+                    author = ""
+                    user_name_node = soup.select_one('article [data-testid="User-Name"] span')
+                    if user_name_node:
+                        author = user_name_node.get_text(strip=True)
+                    if not author:
+                        og_title = soup.select_one('meta[property="og:title"]')
+                        author = og_title.get("content", "").split(" on X")[0].strip() if og_title else ""
+                    # 时间
+                    published_iso = None
+                    time_tag = soup.select_one('article time')
+                    if time_tag and time_tag.has_attr('datetime'):
+                        published_iso = time_tag['datetime']
+                    # 图片
+                    image_urls = []
+                    for img in soup.select('article img[src]')[:6]:
+                        src = img.get('src')
+                        if src and 'profile_images' not in src:
+                            image_urls.append(src)
+                    # 标题
+                    title_tag = soup.find('title')
+                    page_title = title_tag.get_text().strip() if title_tag else ""
+                    if not page_title:
+                        page_title = (author + ' - X') if author else 'X Post'
+                    processing_time = time.time() - start_time
+                    return CrawlResult(
+                        task_id="",
+                        session_id="",
+                        url=url,
+                        status=CrawlTaskStatus.COMPLETED,
+                        title=page_title,
+                        content=tweet_text,
+                        links=[a.get('href') for a in soup.select('article a[href]')[:30]],
+                        images=image_urls,
+                        metadata={
+                            "author": author,
+                            "published_at": published_iso,
+                            "extraction": "x_custom_css",
+                        },
+                        created_at=datetime.now(timezone.utc),
+                        completed_at=datetime.now(timezone.utc),
+                        processing_time=processing_time,
+                    )
+            except Exception as _x_err:
+                logger.warning(f"X/Twitter 专用提取失败，回退通用流程: {_x_err}")
+
             # 性能优化：一次性提取所有需要的元素，避免多次遍历DOM
             title_tag = soup.find('title')
             title = title_tag.get_text().strip() if title_tag else ""
