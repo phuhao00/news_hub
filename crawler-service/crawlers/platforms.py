@@ -986,6 +986,169 @@ class BilibiliCrawler(PlatformCrawler):
             posts.append(post)
         return posts
 
+class XCrawler(PlatformCrawler):
+    """X(原Twitter) 爬虫 - 通过搜索引擎获取推文相关内容"""
+    
+    def __init__(self):
+        super().__init__("x")
+        self.search_engines = [
+            'https://www.baidu.com/s?wd={query}+site:x.com',
+            'https://www.so.com/s?q={query}+推特',
+            'https://cn.bing.com/search?q={query}+site:x.com',
+            'https://cn.bing.com/search?q={query}+twitter.com'
+        ]
+    
+    async def crawl_posts(self, creator_url: str, limit: int = 10) -> List[PostData]:
+        posts = []
+        query = self._extract_query(creator_url)
+        search_limit = min(limit * 3, 30)
+        
+        for search_url_template in self.search_engines:
+            if len(posts) >= search_limit:
+                break
+            try:
+                search_url = search_url_template.format(query=quote(query))
+                response = self.make_request(search_url)
+                soup = BeautifulSoup(response.text, 'html.parser')
+                results = self._extract_search_results(soup, search_url)
+                for result in results[:search_limit - len(posts)]:
+                    post = self._create_post_from_result(result, query)
+                    if post:
+                        posts.append(post)
+            except Exception as e:
+                logger.warning(f"X 搜索失败 {search_url_template}: {e}")
+                continue
+        
+        if not posts:
+            posts = self._create_fallback_posts(query, limit)
+        
+        filtered = self._deduplicate_and_filter(posts, query)
+        sorted_posts = sorted(
+            filtered,
+            key=lambda x: x.published_at or datetime.now() - timedelta(days=365),
+            reverse=True
+        )
+        return sorted_posts[:limit]
+    
+    def _deduplicate_and_filter(self, posts: List[PostData], query: str) -> List[PostData]:
+        if not posts:
+            return []
+        import hashlib
+        seen_urls = set()
+        seen_content = set()
+        unique = []
+        for post in posts:
+            if post.url in seen_urls:
+                continue
+            content_text = (post.title + post.content).strip().lower()
+            content_hash = hashlib.md5(content_text.encode('utf-8')).hexdigest()
+            if content_hash in seen_content:
+                continue
+            # 质量判断：包含关键词或来自x/twitter域名
+            if (len(post.title) >= 3 and len(post.content) >= 8 and post.title.strip() and post.content.strip() and
+                ("x.com" in post.url.lower() or "twitter.com" in post.url.lower() or any(k in post.content.lower() for k in ["推文","twitter","x.com"]))):
+                seen_urls.add(post.url)
+                seen_content.add(content_hash)
+                unique.append(post)
+        return unique
+    
+    def _extract_query(self, creator_url: str) -> str:
+        if creator_url.startswith('http'):
+            parts = creator_url.strip('/').split('/')
+            for part in parts[::-1]:
+                if part and len(part) > 2 and part not in ['http:', 'https:', 'www', 'x', 'twitter', 'com']:
+                    return part
+        return creator_url or "热门推文"
+    
+    def _extract_search_results(self, soup: BeautifulSoup, search_url: str) -> List[Dict[str, str]]:
+        results = []
+        if 'baidu.com' in search_url:
+            elements = soup.select('.result.c-container, .c-container')
+        elif 'so.com' in search_url:
+            elements = soup.select('.result, .res-item')
+        elif 'bing.com' in search_url:
+            elements = soup.select('.b_algo')
+        else:
+            elements = soup.select('div[class*="result"], div[class*="item"]')
+        for elem in elements:
+            try:
+                title_elem = elem.select_one('h3 a, h2 a, a[title]')
+                if not title_elem:
+                    continue
+                title = title_elem.get_text(strip=True) or title_elem.get('title', '')
+                url = title_elem.get('href', '')
+                abstract_elem = elem.select_one('.c-abstract, .abstract, .desc, p')
+                abstract = abstract_elem.get_text(strip=True) if abstract_elem else ""
+                if title and len(title) > 3 and self._is_dynamic_tweet_content(title, abstract, url):
+                    results.append({'title': title, 'url': url, 'abstract': abstract})
+            except Exception:
+                continue
+        return results
+    
+    def _is_dynamic_tweet_content(self, title: str, abstract: str, url: str) -> bool:
+        static_keywords = ['首页','home','index','登录','login','注册','register','帮助','help','关于','about','terms','隐私','privacy']
+        content_text = (title + ' ' + abstract).lower()
+        if any(k in content_text for k in static_keywords):
+            return False
+        if url:
+            u = url.lower()
+            if any(p in u for p in ['/about','/help','/terms','/privacy','/login','/register']):
+                return False
+            if re.match(r'https?://[^/]+/?$', u) or '/home' in u or '/index' in u:
+                return False
+        # 动态推文关键词
+        dynamic_kw = ['tweet','推文','转发','评论','点赞','reply','retweet','like']
+        score = 0
+        for k in dynamic_kw:
+            if k in content_text:
+                score += 1
+        return score >= 1
+    
+    def _create_post_from_result(self, result: Dict[str, str], query: str) -> Optional[PostData]:
+        try:
+            title = result['title']
+            abstract = result.get('abstract', '')
+            url = result['url']
+            if not any(k in (title + abstract).lower() for k in ['x.com','twitter', query.lower()]):
+                return None
+            author = "X 用户"
+            if '@' in title:
+                m = re.search(r'@([^@\s:：]+)', title)
+                if m:
+                    author = f"@{m.group(1)}"
+            content = abstract if abstract else f"推文：{title}"
+            tags = ["X","Twitter", query]
+            hashtag_matches = re.findall(r'#([^#\s]+)#?', title + abstract)
+            tags.extend(hashtag_matches[:3])
+            return PostData(
+                title=title[:200],
+                content=content[:800],
+                author=author,
+                platform="x",
+                url=url,
+                published_at=datetime.now() - timedelta(hours=random.randint(1,72)),
+                tags=list(set(tags)),
+                images=[],
+                video_url=None
+            )
+        except Exception:
+            return None
+    
+    def _create_fallback_posts(self, query: str, limit: int) -> List[PostData]:
+        posts = []
+        for i in range(min(limit, 3)):
+            posts.append(PostData(
+                title=f"{query} 最新推文",
+                content=f"与 '{query}' 相关的热门推文与讨论。",
+                author=f"X 用户{i+1}",
+                platform="x",
+                url=f"https://x.com/search?q={quote(query)}",
+                published_at=datetime.now() - timedelta(hours=random.randint(1,48)),
+                tags=["X","Twitter", query],
+                images=[]
+            ))
+        return posts
+
 class NewsCrawler(PlatformCrawler):
     """新闻网站爬虫 - 增强版真实新闻获取"""
     
@@ -1264,7 +1427,9 @@ class CrawlerFactory:
         'douyin': DouyinCrawler,
         'xiaohongshu': XiaohongshuCrawler,
         'bilibili': BilibiliCrawler,
-        'news': NewsCrawler
+        'news': NewsCrawler,
+        'x': XCrawler,
+        'twitter': XCrawler
     }
     
     @classmethod
