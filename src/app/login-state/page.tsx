@@ -43,6 +43,10 @@ interface Session {
   last_activity: string;
   expires_at: string;
   metadata: Record<string, unknown>;
+  // optional fields from backend extensions
+  login_user?: string;
+  current_url?: string;
+  last_login_check?: string;
 }
 
 interface BrowserInstance {
@@ -54,6 +58,8 @@ interface BrowserInstance {
   last_used: string;
   current_url?: string;
   metadata: Record<string, unknown>;
+  login_user?: string;
+  login_status?: boolean;
 }
 
 interface CrawlTask {
@@ -68,6 +74,7 @@ interface CrawlTask {
   result?: Record<string, unknown>;
   error?: string;
   retry_count?: number;
+  task_id?: string;
 }
 
 const PLATFORMS = [
@@ -99,7 +106,13 @@ export default function LoginStatePage() {
   const [selectedPlatform, setSelectedPlatform] = useState('');
   const [crawlUrl, setCrawlUrl] = useState('');
   const [selectedSession, setSelectedSession] = useState('');
-  const [statistics, setStatistics] = useState<Record<string, unknown> | null>(null);
+  type Stats = {
+    session_stats?: { active?: number };
+    browser_stats?: { running?: number };
+    crawl_stats?: { total_tasks?: number };
+    system_stats?: { total_cookies?: number };
+  };
+  const [statistics, setStatistics] = useState<Stats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validatingSession, setValidatingSession] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -186,7 +199,7 @@ export default function LoginStatePage() {
       console.log('🔍 [DEBUG] Making API call to:', apiUrl);
       console.log('🔍 [DEBUG] API call method: POST');
       
-      const result = await apiCall(apiUrl, {
+      const result: any = await apiCall(apiUrl, {
         method: 'POST'
       });
       
@@ -195,7 +208,7 @@ export default function LoginStatePage() {
       console.log('🔍 [DEBUG] result.browser_instances:', result.browser_instances);
       
       if (result.is_logged_in) {
-        const loginUser = result.browser_instances?.find(bi => bi.login_user)?.login_user;
+        const loginUser = result.browser_instances?.find((bi: any) => bi.login_user)?.login_user;
         console.log('🔍 [DEBUG] Found login user:', loginUser);
         const successMessage = `检测到登录状态 - 用户: ${loginUser || '未知'}`;
         console.log('🔍 [DEBUG] Showing success toast:', successMessage);
@@ -292,15 +305,15 @@ export default function LoginStatePage() {
     setError(null);
     try {
       // 首先获取会话列表
-      const sessionsData = await apiCall('/sessions?user_id=demo-user');
-      const sessions = sessionsData.items || [];
+      const sessionsData: any = await apiCall('/sessions?user_id=demo-user');
+      const sessions: Session[] = sessionsData.items || [];
       
       // 获取所有会话的浏览器实例
-      let allInstances = [];
+      let allInstances: BrowserInstance[] = [];
       for (const session of sessions) {
         try {
           const instancesData = await apiCall(`/browser-instances?session_id=${session.session_id}`);
-          allInstances = allInstances.concat(instancesData.items || []);
+          allInstances = allInstances.concat((instancesData.items || []) as BrowserInstance[]);
         } catch (error) {
           console.warn(`Failed to load instances for session ${session.session_id}:`, error);
         }
@@ -314,12 +327,12 @@ export default function LoginStatePage() {
         }
       });
       
-      let tasksData = { items: [] };
+      let tasksData: { items: CrawlTask[] } = { items: [] };
       if (tasksResponse.ok) {
         tasksData = await tasksResponse.json();
       }
       
-      const statsData = await apiCall('/stats/system');
+      const statsData: Stats = await apiCall('/stats/system');
       
       setSessions(sessions);
       setBrowserInstances(allInstances);
@@ -879,10 +892,10 @@ export default function LoginStatePage() {
                 <div className="flex-1">
                   <Label htmlFor="platform">选择平台</Label>
                   <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
-                    <SelectTrigger>
+                    <SelectTrigger className="w-64">
                       <SelectValue placeholder="选择要登录的平台" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="w-64">
                       {PLATFORMS.map(platform => (
                         <SelectItem key={platform.value} value={platform.value}>
                           {platform.icon} {platform.label}
@@ -1120,7 +1133,7 @@ export default function LoginStatePage() {
                       <SelectValue placeholder="选择已登录的会话" />
                     </SelectTrigger>
                     <SelectContent>
-                      {sessions.filter(s => s.login_status).map(session => (
+                      {sessions.filter((s: Session) => s.login_status).map((session: Session) => (
                         <SelectItem key={session.session_id} value={session.session_id}>
                           {PLATFORMS.find(p => p.value === session.platform)?.icon} {' '}
                           {PLATFORMS.find(p => p.value === session.platform)?.label} - {session.session_id.slice(0, 8)}
