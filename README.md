@@ -2,6 +2,230 @@
 
 一个现代化的内容爬取、管理和发布平台，支持多平台**真实搜索**和智能内容提取。
 
+## 🖼️ 图总览（优先展示）
+
+### 系统上下文图
+
+```mermaid
+graph TD
+    User[用户/创作者] --> FE[Next.js 前端]
+    FE --> API[Go API (Gin)]
+    API --> Crawler[Python 爬虫服务]
+    API --> DB[(MongoDB)]
+    API --> MinIO[(MinIO 对象存储)]
+    Crawler --> Search[(搜索引擎/目标站点)]
+    FE -. 直链媒体 .-> MinIO
+```
+
+### 容器/组件图
+
+```mermaid
+flowchart LR
+    subgraph Frontend [Frontend]
+        FE[Next.js 14]
+    end
+    subgraph Backend [Backend (Go/Gin)]
+        H[Handlers /api/**]
+        S[Scheduler/Retry]
+        DQ[去重/质量评估]
+        ST[StorageService (MinIO)]
+    end
+    subgraph Crawler [Crawler Service (FastAPI)]
+        CW[Platform Crawlers]
+        PL[Playwright/Requests]
+    end
+    subgraph Infra [Infra]
+        MDB[(MongoDB)]
+        MIO[(MinIO)]
+    end
+    FE --> H
+    H --> S
+    H --> DQ
+    H --> ST
+    H <---> MDB
+    ST <---> MIO
+    H --> CW
+    CW --> PL --> Search[(搜索引擎/站点)]
+```
+
+### 部署拓扑
+
+```mermaid
+graph TB
+    subgraph Client
+        U[Browser/Creator]
+    end
+
+    subgraph Host/Dev Machine
+        FE2[Next.js Frontend :3000]
+        BE2[Go Backend (Gin) :8081]
+        PY2[Python Crawler :8001]
+        DB2[(MongoDB :27015/27017)]
+        OBJ2[(MinIO :9000/:9001)]
+    end
+
+    U --> FE2 --> BE2 --> PY2
+    BE2 <---> DB2
+    BE2 <---> OBJ2
+    PY2 --> DB2
+    PY2 --> OBJ2
+```
+
+### 数据流转图
+
+```mermaid
+flowchart LR
+    SRC[搜索结果/目标站点] --> EXT[内容抽取]
+    EXT --> DEDUP[去重]
+    DEDUP --> QA[质量评估]
+    QA --> DB3[(MongoDB)]
+    QA --> OS3[(MinIO)]
+    DB3 --> API3[Go API]
+    OS3 --> API3
+    API3 --> UI3[Next.js]
+```
+
+### 任务状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> running: 调度
+    running --> completed: 成功
+    running --> failed: 失败
+    failed --> pending: 重试
+```
+
+### 时序图：爬取任务
+
+```mermaid
+sequenceDiagram
+    participant UI as Next.js 前端
+    participant API as Go API (Gin)
+    participant CR as Python 爬虫
+    participant DB as MongoDB
+    participant OS as MinIO
+
+    UI->>API: 创建爬取任务
+    API->>DB: 记录任务(pending)
+    API->>CR: 下发任务
+    CR->>DB: 写入内容/进度
+    CR->>OS: 上传媒体
+    API->>DB: 更新状态(completed/failed)
+    UI->>API: 轮询任务/内容
+    API-->>UI: 返回列表
+```
+
+### 时序图：视频生成
+
+```mermaid
+sequenceDiagram
+    participant UI as Next.js 前端
+    participant API as Go API
+    participant VS as VideoService
+    participant OS as MinIO
+    participant DB as MongoDB
+
+    UI->>API: 生成视频(postIds, style, duration)
+    API->>VS: 触发生成任务
+    VS->>OS: 读取/上传素材与成品
+    VS->>DB: 写入视频记录与状态
+    API-->>UI: 返回任务/视频ID
+    UI->>API: 轮询视频状态
+    API-->>UI: processing/completed/failed
+```
+
+### 时序图：多平台发布
+
+```mermaid
+sequenceDiagram
+    participant UI as Next.js 前端
+    participant API as Go API
+    participant PS as PublishService
+    participant PL as Platform APIs
+    participant DB as MongoDB
+
+    UI->>API: 创建发布任务(videoId, platforms)
+    API->>DB: 记录任务(pending)
+    API->>PS: 下发发布
+    PS->>PL: 平台接口调用
+    PL-->>PS: 返回发布结果/链接
+    PS->>DB: 更新任务状态
+    API-->>UI: 状态/链接
+```
+
+### UML 类图（模型）
+
+```mermaid
+classDiagram
+    class Creator {
+      ObjectID id
+      string username
+      string platform
+      string profileURL
+      int followerCount
+      bool autoCrawlEnabled
+      int crawlInterval
+      time lastCrawlAt
+    }
+    class Post {
+      ObjectID id
+      ObjectID creatorId
+      string platform
+      string postId
+      string title
+      string content
+      string[] mediaURLs
+      time publishedAt
+    }
+    class Video {
+      ObjectID id
+      ObjectID[] postIds
+      string style
+      int duration
+      string url
+      string status
+    }
+    class PublishTask {
+      ObjectID id
+      ObjectID videoId
+      string[] platforms
+      string status
+    }
+    class CrawlerTask {
+      ObjectID id
+      string taskId
+      string platform
+      string url
+      string status
+    }
+    class CrawlerContent {
+      ObjectID id
+      ObjectID taskId
+      string title
+      string content
+      string contentHash
+      string author
+      string platform
+      string url
+    }
+    Creator "1" --> "*" Post
+    Post "*" --> "*" Video : aggregates
+    PublishTask "*" --> "1" Video
+    CrawlerTask "1" --> "*" CrawlerContent
+```
+
+### ER 图
+
+```mermaid
+erDiagram
+    CREATOR ||--o{ POST : has
+    POST }o--o{ VIDEO : referenced_by
+    VIDEO ||--o{ PUBLISHTASK : produces
+    CRAWLERTASK ||--o{ CRAWLERCONTENT : generates
+    CRAWLERCONTENT }o--|| POST : may_map_to
+```
+
 ## 🚀 功能矩阵
 
 | 类别 | 能力 | 说明 |
@@ -15,120 +239,9 @@
 | 分析 | 指标与趋势、互动统计 | 概览/性能/互动维度 |
 | 自动化 | 工作流与定时任务 | 触发器 + 动作流水线 |
 
-## 🏗️ 系统架构
+ 
 
-```mermaid
-graph LR
-    A[Next.js 14 前端] -- REST/JSON --> B[Go API (Gin)]
-    B -- 任务下发/回调 --> C[Python 爬虫服务 (FastAPI/Playwright)]
-    C -- 真实搜索/抓取 --> G[(搜索引擎/目标站点)]
-    B -- 元数据/状态 --> D[(MongoDB)]
-    B -- 媒体读写 --> E[(MinIO 对象存储)]
-    subgraph 后端内部
-        B --- F[任务调度器/重试]
-        B --- H[去重与质量评估]
-    end
-    style D fill:#E3F2FD,stroke:#90CAF9
-    style E fill:#F1F8E9,stroke:#A5D6A7
-```
-
-### 服务端口配置
-- 前端: `http://localhost:3000`
-- Go后端: `http://localhost:8081`（本地开发；Docker 为 `8080`）
-- Python爬虫: `http://localhost:8001`
-- MinIO: `9000`(API) / `9001`(Console)
-- MongoDB: `localhost:27015`（本地），Docker 默认 `27017`
-
-### 数据模型与关系（ER）
-
-```mermaid
-erDiagram
-    CREATOR ||--o{ POST : has
-    POST }o--o{ VIDEO : referenced_by
-    VIDEO ||--o{ PUBLISHTASK : produces
-    CRAWLERTASK ||--o{ CRAWLERCONTENT : generates
-    CRAWLERCONTENT }o--|| POST : may_map_to
-
-    CREATOR {
-        ObjectID id
-        string username
-        string platform
-        string profile_url
-        int follower_count
-        bool auto_crawl_enabled
-        int crawl_interval
-        time last_crawl_at
-        string crawl_status
-    }
-    POST {
-        ObjectID id
-        ObjectID creator_id
-        string platform
-        string post_id
-        string title
-        string content
-        string[] media_urls
-        time published_at
-    }
-    VIDEO {
-        ObjectID id
-        ObjectID[] post_ids
-        string style
-        int duration
-        string url
-        string status
-    }
-    PUBLISHTASK {
-        ObjectID id
-        ObjectID video_id
-        string[] platforms
-        string status
-    }
-    CRAWLERTASK {
-        ObjectID id
-        string task_id
-        string platform
-        string url
-        string status
-        time created_at
-    }
-    CRAWLERCONTENT {
-        ObjectID id
-        ObjectID task_id
-        string title
-        string content
-        string content_hash
-        string author
-        string platform
-        string url
-        time created_at
-    }
-```
-
-### 部署拓扑
-
-```mermaid
-graph TB
-    subgraph Client
-        U[Browser/Creator]
-    end
-
-    subgraph Host/Dev Machine
-        FE[Next.js Frontend :3000]
-        BE[Go Backend (Gin) :8081]
-        PY[Python Crawler :8001]
-        DB[(MongoDB :27015/27017)]
-        OBJ[(MinIO :9000/:9001)]
-    end
-
-    U --> FE --> BE --> PY
-    BE <---> DB
-    BE <---> OBJ
-    PY --> DB
-    PY --> OBJ
-```
-
-### 端口与服务一览
+## 端口与服务一览
 
 | 服务 | 端口 | 描述 | 备注 |
 |------|------|------|------|
@@ -139,7 +252,7 @@ graph TB
 | MinIO Console | 9001 | MinIO 控制台 | Web 管理界面
 | MongoDB | 27015/27017 | 文档数据库 | 本地 27015，Docker 27017
 
-### 环境变量（.env.local 示例）
+## 环境变量（.env.local 示例）
 
 ```bash
 # 数据库
@@ -168,7 +281,7 @@ CRAWLER_SERVICE_URL=http://localhost:8001
 | 存储 | MongoDB, MinIO | 元数据 + 媒体对象 |
 | 部署 | Docker Compose, Nginx | 统一编排与反代 |
 
-## 🚀 快速开始
+## 🚀 快速开始（精简）
 
 ### 安装依赖
 
@@ -200,7 +313,7 @@ pip install -r requirements.txt
 | CRAWLER_SERVICE_URL | http://localhost:8001 | 爬虫服务地址 |
 | NEXT_PUBLIC_API_URL | http://localhost/api | 前端在 Docker 下的 API 代理 |
 
-### 配置数据库
+### 配置数据库与启动
 
 ```bash
 # Windows
@@ -213,23 +326,10 @@ pip install -r requirements.txt
 .\init-database.ps1
 ```
 
-### 启动服务
-
 ```powershell
-# 一键启动（推荐，可选清库）
 ./start-all.ps1               # 正常启动
-./start-all.ps1 -Interactive  # 启动时询问是否清库
-./start-all.ps1 -CleanDB      # 非交互清库（保留 sessions/login_sessions/platform_configs）
-```
-
-### 测试爬虫功能
-
-```bash
-# 进入爬虫服务目录
-cd crawler-service
-
-# 运行测试脚本
-python test_crawler.py
+./start-all.ps1 -Interactive  # 交互清库
+./start-all.ps1 -CleanDB      # 非交互清库
 ```
 
 ### 访问应用
