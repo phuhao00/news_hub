@@ -26,23 +26,80 @@
 
 ## 🏗️ 系统架构
 
-```
-前端 (Next.js)
-    ↓
-Go后端 (数据处理 & API管理)
-    ↓
-Python爬虫服务 (真实搜索 & 内容提取)
-    ↓
-真实数据源 (百度、搜狗、必应等搜索引擎)
-    ↓
-MongoDB (数据存储)
+```mermaid
+graph LR
+    A[Next.js 14 前端] -- REST/JSON --> B[Go API (Gin)]
+    B -- 任务下发/回调 --> C[Python 爬虫服务 (FastAPI/Playwright)]
+    C -- 真实搜索/抓取 --> G[(搜索引擎/目标站点)]
+    B -- 元数据/状态 --> D[(MongoDB)]
+    B -- 媒体读写 --> E[(MinIO 对象存储)]
+    subgraph 后端内部
+        B --- F[任务调度器/重试]
+        B --- H[去重与质量评估]
+    end
+    style D fill:#E3F2FD,stroke:#90CAF9
+    style E fill:#F1F8E9,stroke:#A5D6A7
 ```
 
 ### 服务端口配置
 - 前端: `http://localhost:3000`
-- Go后端: `http://localhost:8081`  (开发端口)
+- Go后端: `http://localhost:8081`（本地开发；Docker 为 `8080`）
 - Python爬虫: `http://localhost:8001`
-- MongoDB: `localhost:27017` (Docker 默认 27017，本地也可使用 27015)
+- MinIO: `9000`(API) / `9001`(Console)
+- MongoDB: `localhost:27015`（本地），Docker 默认 `27017`
+
+### 部署拓扑
+
+```mermaid
+graph TB
+    subgraph Client
+        U[Browser/Creator]
+    end
+
+    subgraph Host/Dev Machine
+        FE[Next.js Frontend :3000]
+        BE[Go Backend (Gin) :8081]
+        PY[Python Crawler :8001]
+        DB[(MongoDB :27015/27017)]
+        OBJ[(MinIO :9000/:9001)]
+    end
+
+    U --> FE --> BE --> PY
+    BE <---> DB
+    BE <---> OBJ
+    PY --> DB
+    PY --> OBJ
+```
+
+### 端口与服务一览
+
+| 服务 | 端口 | 描述 | 备注 |
+|------|------|------|------|
+| 前端 Next.js | 3000 | Web 应用 | 开发环境
+| Go 后端 | 8081 | API 服务 | Docker 默认 8080
+| Python 爬虫 | 8001 | 爬虫/抽取服务 | FastAPI + Playwright
+| MinIO API | 9000 | 对象存储 API | 媒体与文件
+| MinIO Console | 9001 | MinIO 控制台 | Web 管理界面
+| MongoDB | 27015/27017 | 文档数据库 | 本地 27015，Docker 27017
+
+### 环境变量（.env.local 示例）
+
+```bash
+# 数据库
+MONGODB_URI=mongodb://localhost:27015
+DB_NAME=newshub
+
+# MinIO 对象存储
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin123
+MINIO_USE_SSL=false
+MINIO_BUCKET_NAME=newshub-media
+
+# 服务端口
+PORT=8081
+CRAWLER_SERVICE_URL=http://localhost:8001
+```
 
 ## 🛠️ 技术栈
 
@@ -394,6 +451,41 @@ graph TD
     J --> K[优化策略]
 ```
 
+### 交互时序图（爬取任务）
+
+```mermaid
+sequenceDiagram
+    participant UI as Next.js 前端
+    participant API as Go API (Gin)
+    participant CR as Python 爬虫
+    participant DB as MongoDB
+    participant OS as MinIO
+
+    UI->>API: 创建爬取任务 (platform, keyword, count)
+    API->>DB: 记录任务 (pending)
+    API->>CR: 下发任务
+    CR->>CR: 实际搜索/抓取 (Playwright/Requests)
+    CR->>DB: 写入内容与任务进度
+    CR->>OS: 上传图片/视频
+    API->>DB: 更新任务状态 (completed/failed)
+    UI->>API: 轮询任务与内容
+    API-->>UI: 返回任务状态与内容列表
+```
+
+### 数据流转图
+
+```mermaid
+flowchart LR
+    SRC[搜索结果/目标站点] --> EXT[内容抽取]
+    EXT --> DEDUP[去重]
+    DEDUP --> QA[质量评估]
+    QA --> DB[(MongoDB)]
+    QA --> OS[(MinIO)]
+    DB --> API[Go API]
+    OS --> API
+    API --> UI[Next.js 前端]
+```
+
 ### 典型使用场景
 
 #### 1. 新闻资讯制作
@@ -538,3 +630,13 @@ GET /api/publish/{taskId}
 ## 🎉 **立即开始体验完整的内容创作工作流程！**
 
 从智能爬取到AI视频生成，再到多平台发布 - NewsHub为您提供一站式的内容创作解决方案。
+
+## 🖼️ 界面预览
+
+> 以下为占位图示例，实际项目可替换为真实截图（建议放置于 `public/screenshots/`）。
+
+![主页示意](./public/globe.svg)
+
+![内容管理示意](./public/window.svg)
+
+![发布管理示意](./public/file.svg)
