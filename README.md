@@ -2,27 +2,18 @@
 
 一个现代化的内容爬取、管理和发布平台，支持多平台**真实搜索**和智能内容提取。
 
-## 🚀 核心功能
+## 🚀 功能矩阵
 
-### 🕷️ 真实爬取引擎 ⭐ **NEW**
-- **真实数据源**: 通过百度、搜狗、必应等搜索引擎获取实际网络内容
-- **多平台支持**: 微博、B站、小红书、抖音、新闻网站
-- **智能搜索**: 关键词搜索和URL直接爬取两种模式
-- **内容提取**: 自动提取标题、内容、作者、图片、视频等
-- **反爬处理**: 智能User-Agent轮换、请求间隔控制
-- **质量过滤**: 智能内容质量检查和相关性验证
-
-### 📊 任务管理系统
-- **实时状态跟踪**: pending → running → completed/failed
-- **数据持久化**: 任务记录和爬取内容永久存储
-- **定时刷新**: 前端每10秒自动更新任务状态
-- **错误处理**: 详细的错误信息和重试机制
-
-### 🎯 用户界面
-- **双模式切换**: 关键词搜索 / URL爬取
-- **实时监控**: 任务进度、成功率、内容数量
-- **美观展示**: 卡片式内容展示，支持图片和视频
-- **响应式设计**: 完美适配桌面和移动设备
+| 类别 | 能力 | 说明 |
+|------|------|------|
+| 爬取 | 真实搜索、URL直抓、反爬策略 | 百度/搜狗/必应聚合，UA/间隔/重试 |
+| 内容 | 标题/正文/媒体抽取、去重、质量评估 | MD5 去重、多指标质量评分 |
+| 任务 | 创建/调度/重试、状态跟踪 | pending/running/completed/failed |
+| 存储 | MongoDB + MinIO | 元数据入库，媒体入对象存储 |
+| 生成 | AI 视频合成（多风格）、可选配音 | 基于选定内容合成视频 |
+| 发布 | 多平台发布与状态跟踪 | 批量发布、错误重试 |
+| 分析 | 指标与趋势、互动统计 | 概览/性能/互动维度 |
+| 自动化 | 工作流与定时任务 | 触发器 + 动作流水线 |
 
 ## 🏗️ 系统架构
 
@@ -47,6 +38,72 @@ graph LR
 - Python爬虫: `http://localhost:8001`
 - MinIO: `9000`(API) / `9001`(Console)
 - MongoDB: `localhost:27015`（本地），Docker 默认 `27017`
+
+### 数据模型与关系（ER）
+
+```mermaid
+erDiagram
+    CREATOR ||--o{ POST : has
+    POST }o--o{ VIDEO : referenced_by
+    VIDEO ||--o{ PUBLISHTASK : produces
+    CRAWLERTASK ||--o{ CRAWLERCONTENT : generates
+    CRAWLERCONTENT }o--|| POST : may_map_to
+
+    CREATOR {
+        ObjectID id
+        string username
+        string platform
+        string profile_url
+        int follower_count
+        bool auto_crawl_enabled
+        int crawl_interval
+        time last_crawl_at
+        string crawl_status
+    }
+    POST {
+        ObjectID id
+        ObjectID creator_id
+        string platform
+        string post_id
+        string title
+        string content
+        string[] media_urls
+        time published_at
+    }
+    VIDEO {
+        ObjectID id
+        ObjectID[] post_ids
+        string style
+        int duration
+        string url
+        string status
+    }
+    PUBLISHTASK {
+        ObjectID id
+        ObjectID video_id
+        string[] platforms
+        string status
+    }
+    CRAWLERTASK {
+        ObjectID id
+        string task_id
+        string platform
+        string url
+        string status
+        time created_at
+    }
+    CRAWLERCONTENT {
+        ObjectID id
+        ObjectID task_id
+        string title
+        string content
+        string content_hash
+        string author
+        string platform
+        string url
+        time created_at
+    }
+```
 
 ### 部署拓扑
 
@@ -101,27 +158,15 @@ PORT=8081
 CRAWLER_SERVICE_URL=http://localhost:8001
 ```
 
-## 🛠️ 技术栈
+## 🛠️ 技术栈（表）
 
-### 前端
-- **Next.js 14**: React框架，App Router
-- **TypeScript**: 类型安全
-- **Tailwind CSS**: 现代化样式
-- **定时刷新**: 实时数据更新
-
-### 后端
-- **Go**: 高性能API服务
-- **Gin**: Web框架
-- **MongoDB**: 文档数据库
-- **配置文件管理**: JSON配置替代环境变量
-
-### 爬虫服务 ⭐ **真实爬取**
-- **Python 3.9+**: 主要语言
-- **FastAPI**: 异步API框架
-- **BeautifulSoup4**: HTML解析
-- **Requests**: HTTP客户端
-- **真实数据源**: 百度、搜狗、必应搜索引擎
-- **智能解析**: 多策略内容提取和质量检查
+| 模块 | 技术 | 说明 |
+|------|------|------|
+| 前端 | Next.js 14, TypeScript, Tailwind CSS | App Router，实时刷新 |
+| 后端 | Go, Gin | 高性能 API，JSON 日志 |
+| 爬虫 | Python, FastAPI, Playwright/Requests, BS4 | 真实搜索与抽取 |
+| 存储 | MongoDB, MinIO | 元数据 + 媒体对象 |
+| 部署 | Docker Compose, Nginx | 统一编排与反代 |
 
 ## 🚀 快速开始
 
@@ -139,6 +184,21 @@ go mod tidy
 cd ../crawler-service
 pip install -r requirements.txt
 ```
+
+### 环境变量表
+
+| 键 | 示例值 | 说明 |
+|----|--------|------|
+| MONGODB_URI | mongodb://localhost:27015 | MongoDB 连接串（本地） |
+| DB_NAME | newshub | 数据库名 |
+| MINIO_ENDPOINT | localhost:9000 | MinIO API 端点 |
+| MINIO_ACCESS_KEY | minioadmin | MinIO 访问密钥 |
+| MINIO_SECRET_KEY | minioadmin123 | MinIO 密钥 |
+| MINIO_USE_SSL | false | 是否启用 SSL |
+| MINIO_BUCKET_NAME | newshub-media | 媒体桶名 |
+| PORT | 8081 | Go 后端本地端口 |
+| CRAWLER_SERVICE_URL | http://localhost:8001 | 爬虫服务地址 |
+| NEXT_PUBLIC_API_URL | http://localhost/api | 前端在 Docker 下的 API 代理 |
 
 ### 配置数据库
 
@@ -180,39 +240,15 @@ python test_crawler.py
 - **爬虫服务 API 文档**: http://localhost:8001/docs
 - **后端健康检查**: http://localhost:8081/health
 
-## 📖 使用指南
+## 📖 使用指南（表）
 
-### 1. 创建爬取任务
-
-#### 关键词搜索模式 ⭐ **推荐**
-1. 选择"🔍 关键词搜索"
-2. 选择目标平台（微博、B站、小红书等）
-3. 输入搜索关键词，如：
-   - `人工智能` - 搜索AI相关内容
-   - `美食推荐` - 搜索美食内容
-   - `旅游攻略` - 搜索旅游信息
-   - `编程教程` - 搜索技术教程
-4. 设置爬取数量（1-50条）
-5. 点击"🚀 开始搜索任务"
-
-#### URL爬取模式
-1. 选择"🔗 URL爬取"
-2. 输入具体的URL或创作者链接
-3. 系统自动识别平台并爬取内容
-
-### 2. 监控任务状态
-
-- **等待中** 🟡: 任务已创建，等待执行
-- **运行中** 🔵: 正在爬取内容
-- **已完成** 🟢: 成功完成爬取
-- **失败** 🔴: 爬取失败，查看错误信息
-
-### 3. 查看爬取内容
-
-- 任务完成后，内容自动显示在"爬取内容"区域
-- 支持查看标题、内容、作者、发布时间
-- 点击"查看原文"访问原始链接
-- 图片和视频链接自动提取
+| 功能 | 入口 | 动作 |
+|------|------|------|
+| 创建爬取任务 | `/crawler` | 选择平台/关键词或 URL，设置数量，开始任务 |
+| 监控任务状态 | `/crawler` | 查看 pending/running/completed/failed |
+| 浏览内容 | `/content` | 按平台/创作者筛选，查看详情/原文 |
+| 生成视频 | `/generate` | 选择内容，设定风格/时长/分辨率，生成 |
+| 发布内容 | `/publish` | 选择平台与文案，提交发布任务 |
 
 ## 🔧 配置文件
 
@@ -405,28 +441,14 @@ NewsHub集成了强大的AI视频生成功能，可以将爬取的内容自动�
 - **✅ 已发布**: 成功发布，可查看链接
 - **❌ 发布失败**: 失败原因和错误详情
 
-## 📋 内容管理系统
+## 📋 内容管理（表）
 
-### 全方位内容管理
-提供完整的内容生命周期管理，从爬取到发布的全流程控制：
-
-#### 内容浏览
-- **多维度筛选**: 按平台、创作者、时间范围筛选
-- **智能搜索**: 支持标题和内容全文搜索
-- **卡片式展示**: 美观的内容预览，支持图片和视频
-- **统计信息**: 显示点赞、分享、评论等互动数据
-
-#### 内容操作
-- **批量选择**: 支持多选进行批量操作
-- **内容删除**: 清理不需要的内容
-- **质量评估**: 自动评估内容质量和相关性
-- **导出功能**: 支持导出为多种格式
-
-#### 创作者管理
-- **创作者档案**: 详细的创作者信息和统计
-- **平台分类**: 按社交媒体平台分类管理
-- **内容关联**: 查看创作者的所有相关内容
-- **表现分析**: 创作者内容表现统计
+| 类别 | 能力 | 操作 |
+|------|------|------|
+| 内容浏览 | 多维度筛选、全文搜索、卡片预览 | 预览、跳转原文 |
+| 内容操作 | 批量选择、删除、导出 | 批量处理、一键清理 |
+| 质量评估 | 相关性/长度/广告/重复 | 评分与标注 |
+| 创作者 | 档案、平台分类、关联内容、表现分析 | 新建/删除/筛选 |
 
 ## 🔄 完整工作流程
 
@@ -543,63 +565,23 @@ http://localhost:3000/generate
 http://localhost:3000/publish
 ```
 
-## 📡 API接口文档
+## 📡 API 接口（表）
 
-### 爬虫服务API
-
-```bash
-# 创建爬取任务
-POST /api/crawl
-{
-  "platform": "weibo",
-  "keyword": "人工智能", 
-  "mode": "search",
-  "count": 20
-}
-
-# 获取任务状态
-GET /api/crawl/tasks
-
-# 获取爬取内容
-GET /api/crawl/content
-```
-
-### 视频生成API
-
-```bash
-# 生成视频
-POST /api/generate-video
-{
-  "postIds": ["post1", "post2"],
-  "style": "news",
-  "duration": 60,
-  "resolution": "1080p"
-}
-
-# 获取视频列表
-GET /api/videos
-
-# 获取视频详情
-GET /api/videos/{id}
-```
-
-### 发布管理API
-
-```bash
-# 创建发布任务
-POST /api/publish
-{
-  "videoId": "video123",
-  "platforms": ["weibo", "douyin"],
-  "description": "发布文案"
-}
-
-# 获取发布状态
-GET /api/publish/tasks
-
-# 获取发布结果
-GET /api/publish/{taskId}
-```
+| 领域 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| 爬虫任务 | POST | `/api/crawler/tasks` | 创建爬虫任务（后端代理到 Python） |
+| 爬虫任务 | GET | `/api/crawler/tasks` | 列表/分页/过滤 |
+| 爬虫任务 | GET | `/api/crawler/tasks/{id}` | 获取任务详情 |
+| 爬虫任务 | PUT | `/api/crawler/tasks/{id}/status` | 更新任务状态/错误 |
+| 爬虫内容 | GET | `/api/crawler/contents` | 按任务ID筛选内容 |
+| 平台 | GET | `/api/crawler/platforms` | 支持平台列表 |
+| 创作者 | POST | `/api/creators` | 新建创作者 |
+| 创作者 | GET | `/api/creators` | 创作者列表 |
+| 创作者 | DELETE | `/api/creators/{id}` | 删除创作者 |
+| 视频 | POST | `/api/videos/generate` | 生成视频 |
+| 视频 | GET | `/api/videos` | 视频列表 |
+| 发布 | POST | `/api/publish` | 创建发布任务 |
+| 发布 | GET | `/api/publish/tasks` | 发布任务列表 |
 
 ## ⚡ 高级功能
 
