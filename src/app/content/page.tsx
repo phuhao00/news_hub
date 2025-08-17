@@ -183,12 +183,16 @@ export default function ContentPage() {
       .join('\n');
     const sanitize = (s: string) => {
       const removeList = [
-        'ICP备', '违法不良信息', '营业执照', '隐私政策', '用户协议', '举报', '通知我', '温馨提示', '登录', '注册', '浏览器', '版权', '站点地图'
+        // 中文
+        'ICP备', '违法不良信息', '营业执照', '隐私政策', '用户协议', '举报', '通知我', '温馨提示', '登录', '注册', '浏览器', '版权', '站点地图',
+        // 英文
+        'ICP', 'beian', 'record', 'privacy policy', 'terms of service', 'terms of use', 'user agreement', 'report', 'complaint', 'disclaimer', 'cookie policy', 'cookies', 'sign in', 'log in', 'login', 'register', 'sign up', 'subscribe', 'newsletter', 'sitemap', 'navigation', 'menu', 'footer', 'header', 'back to top', 'copyright', 'all rights reserved', '©', '™', '®'
       ];
       let out = s;
-      removeList.forEach(k => { out = out.split(k).join(''); });
+      removeList.forEach(k => { out = out.replace(new RegExp(k, 'gi'), ''); });
+      // 移除URL
+      out = out.replace(/https?:\/\/\S+/gi, '');
       out = out.replace(/\s+/g, ' ').trim();
-      // 过长截断，避免提示词过长影响生成
       if (out.length > 2000) out = out.slice(0, 2000) + '...';
       return out;
     };

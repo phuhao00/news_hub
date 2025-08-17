@@ -221,12 +221,31 @@ func findString(m map[string]interface{}, key string) (string, bool) {
 
 // sanitizeForSpeech 去掉备案/版权/导航噪声
 func sanitizeForSpeech(s string) string {
-	repl := []string{"ICP备", "违法不良信息", "营业执照", "隐私政策", "用户协议", "举报", "温馨提示", "登录", "注册"}
-	for _, r := range repl {
-		s = strings.ReplaceAll(s, r, "")
+	repl := []string{
+		// 中文
+		"ICP备", "违法不良信息", "营业执照", "隐私政策", "用户协议", "举报", "温馨提示", "登录", "注册", "版权", "站点地图",
+		// 英文
+		"ICP", "beian", "record", "privacy policy", "terms of service", "terms of use", "user agreement", "report", "complaint", "disclaimer", "cookie policy", "cookies", "sign in", "log in", "login", "register", "sign up", "subscribe", "newsletter", "sitemap", "navigation", "menu", "footer", "header", "back to top", "copyright", "all rights reserved", "©", "™", "®",
 	}
-	s = strings.Join(strings.Fields(s), " ")
-	return strings.TrimSpace(s)
+	lower := strings.ToLower(s)
+	for _, r := range repl {
+		lower = strings.ReplaceAll(lower, r, "")
+	}
+	// 移除 URL
+	tokens := strings.Fields(lower)
+	filtered := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		if strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") {
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+	out := strings.Join(filtered, " ")
+	out = strings.TrimSpace(out)
+	if len(out) > 2000 {
+		out = out[:2000] + "..."
+	}
+	return out
 }
 
 func callOpenAITTS(c *gin.Context, text string, req TTSRequest, key string) error {

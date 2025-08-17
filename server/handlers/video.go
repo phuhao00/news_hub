@@ -550,11 +550,31 @@ func UpdateVideo(c *gin.Context) {
 
 // sanitizePrompt 清洗生成文案，去掉站点备案/版权、UI提示等噪声
 func sanitizePrompt(s string) string {
-	// 极简清洗：移除重复空白与常见版权字样
-	repl := []string{"沪ICP备", "违法不良信息举报", "营业执照", "ICP备", "隐私政策", "用户协议", "通知我", "温馨提示", "浏览器"}
-	for _, r := range repl {
-		s = strings.ReplaceAll(s, r, "")
+	// 中文与英文常见噪声
+	repl := []string{
+		// 中文
+		"沪ICP备", "违法不良信息举报", "营业执照", "ICP备", "隐私政策", "用户协议", "通知我", "温馨提示", "浏览器", "版权", "站点地图",
+		// 英文
+		"ICP", "beian", "record", "privacy policy", "terms of service", "terms of use", "user agreement", "report", "complaint", "disclaimer", "cookie policy", "cookies", "sign in", "log in", "login", "register", "sign up", "subscribe", "newsletter", "sitemap", "navigation", "menu", "footer", "header", "back to top", "copyright", "all rights reserved", "©", "™", "®",
 	}
-	s = strings.TrimSpace(s)
-	return s
+	lower := strings.ToLower(s)
+	for _, r := range repl {
+		lower = strings.ReplaceAll(lower, r, "")
+	}
+	// 移除 URL
+	// 注意：Go 标准库无内置正则 here，使用简单切割避免引入额外依赖
+	// 这里保持简单：按空白拆分后滤掉以 http/https 开头的词
+	var filtered []string
+	for _, token := range strings.Fields(lower) {
+		if strings.HasPrefix(token, "http://") || strings.HasPrefix(token, "https://") {
+			continue
+		}
+		filtered = append(filtered, token)
+	}
+	out := strings.Join(filtered, " ")
+	out = strings.TrimSpace(out)
+	if len(out) > 2000 {
+		out = out[:2000] + "..."
+	}
+	return out
 }
