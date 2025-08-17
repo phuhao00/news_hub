@@ -21,20 +21,20 @@ graph TD
 
 ```mermaid
 flowchart LR
-    subgraph Frontend [Frontend]
+    subgraph Frontend
         FE[Next.js 14]
     end
-    subgraph Backend [Backend (Go/Gin)]
-        H[Handlers /api/**]
-        S[Scheduler/Retry]
-        DQ[去重/质量评估]
-        ST[StorageService (MinIO)]
+    subgraph Backend
+        H[API Handlers]
+        S[Scheduler & Retry]
+        DQ[Dedup & Quality]
+        ST[Storage Service]
     end
-    subgraph Crawler [Crawler Service (FastAPI)]
+    subgraph Crawler
         CW[Platform Crawlers]
-        PL[Playwright/Requests]
+        PL[Playwright / Requests]
     end
-    subgraph Infra [Infra]
+    subgraph Infra
         MDB[(MongoDB)]
         MIO[(MinIO)]
     end
@@ -57,11 +57,11 @@ graph TB
     end
 
     subgraph Host/Dev Machine
-        FE2[Next.js Frontend :3000]
-        BE2[Go Backend (Gin) :8081]
-        PY2[Python Crawler :8001]
-        DB2[(MongoDB :27015/27017)]
-        OBJ2[(MinIO :9000/:9001)]
+        FE2[Next.js Frontend 3000]
+        BE2[Go Backend (Gin) 8081]
+        PY2[Python Crawler 8001]
+        DB2[(MongoDB 27015/27017)]
+        OBJ2[(MinIO 9000/9001)]
     end
 
     U --> FE2 --> BE2 --> PY2
