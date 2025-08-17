@@ -4587,6 +4587,7 @@ crawler_service = UnifiedCrawlerService()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    global worker_manager
     # 启动时
     try:
         await crawler_service.initialize()
@@ -4615,6 +4616,33 @@ async def lifespan(app: FastAPI):
             logger.info("登录状态管理初始化完成")
         except Exception as e:
             logger.warning(f"登录状态管理初始化失败: {e}")
+
+        # 初始化Worker管理器
+        try:
+            global worker_manager
+            from worker.worker_manager import WorkerManager, WorkerConfig
+            
+            worker_config_data = app_config.get("worker", {})
+            worker_config = WorkerConfig(
+                num_workers=worker_config_data.get("num_workers", 3),
+                max_concurrent_tasks=worker_config_data.get("max_concurrent_tasks", 5),
+                task_timeout=worker_config_data.get("task_timeout", 300),
+                heartbeat_interval=worker_config_data.get("heartbeat_interval", 30),
+                queue_check_interval=worker_config_data.get("queue_check_interval", 5),
+                task_queue_key=worker_config_data.get("task_queue_key", "crawler:tasks"),
+                redis_host=app_config.get("redis", {}).get("host", "localhost"),
+                redis_port=app_config.get("redis", {}).get("port", 6379),
+                redis_db=app_config.get("redis", {}).get("db", 0),
+                redis_password=app_config.get("redis", {}).get("password"),
+                backend_api_url=app_config.get("backend_api", {}).get("url", "http://localhost:8081"),
+                backend_api_timeout=app_config.get("backend_api", {}).get("timeout", 30)
+            )
+            
+            worker_manager = WorkerManager(worker_config)
+            logger.info("Worker管理器初始化成功")
+        except Exception as e:
+            logger.error(f"Worker管理器初始化失败: {e}")
+            worker_manager = None
         
         logger.info("应用启动完成")
     except Exception as e:
@@ -4633,6 +4661,15 @@ async def lifespan(app: FastAPI):
             logger.info("登录状态管理清理完成")
         except Exception as e:
             logger.warning(f"登录状态管理清理失败: {e}")
+
+        # 清理Worker管理器
+        try:
+            if worker_manager:
+                await worker_manager.stop_all_workers()
+                logger.info("Worker管理器已清理")
+                worker_manager = None
+        except Exception as e:
+            logger.error(f"Worker管理器清理失败: {e}")
         
         logger.info("应用关闭完成")
     except Exception as e:
@@ -4843,6 +4880,20 @@ async def get_supported_platforms():
                 "content_type": "视频内容"
             },
             {
+                "name": "X",
+                "key": "x",
+                "domain": "x.com",
+                "supported": True,
+                "content_type": "社交媒体帖子"
+            },
+            {
+                "name": "Twitter",
+                "key": "twitter",
+                "domain": "twitter.com",
+                "supported": True,
+                "content_type": "社交媒体帖子"
+            },
+            {
                 "name": "新闻网站",
                 "key": "news",
                 "domain": "*.news.*",
@@ -5030,50 +5081,6 @@ async def get_crawler_status():
 
 # 全局Worker管理器实例
 worker_manager = None
-
-@app.on_event("startup")
-async def init_worker_manager():
-    """初始化Worker管理器"""
-    global worker_manager
-    try:
-        from worker.worker_manager import WorkerManager, WorkerConfig
-        
-        # 从配置文件加载Worker配置
-        worker_config_data = app_config.get("worker", {})
-        worker_config = WorkerConfig(
-            num_workers=worker_config_data.get("num_workers", 3),
-            max_concurrent_tasks=worker_config_data.get("max_concurrent_tasks", 5),
-            task_timeout=worker_config_data.get("task_timeout", 300),
-            heartbeat_interval=worker_config_data.get("heartbeat_interval", 30),
-            queue_check_interval=worker_config_data.get("queue_check_interval", 5),
-            task_queue_key=worker_config_data.get("task_queue_key", "crawler:tasks"),
-            redis_host=app_config.get("redis", {}).get("host", "localhost"),
-            redis_port=app_config.get("redis", {}).get("port", 6379),
-            redis_db=app_config.get("redis", {}).get("db", 0),
-            redis_password=app_config.get("redis", {}).get("password"),
-            backend_api_url=app_config.get("backend_api", {}).get("url", "http://localhost:8081"),
-            backend_api_timeout=app_config.get("backend_api", {}).get("timeout", 30)
-        )
-        
-        worker_manager = WorkerManager(worker_config)
-        logger.info("Worker管理器初始化成功")
-        
-    except Exception as e:
-        logger.error(f"Worker管理器初始化失败: {e}")
-        worker_manager = None
-
-@app.on_event("shutdown")
-async def cleanup_worker_manager():
-    """清理Worker管理器"""
-    global worker_manager
-    if worker_manager:
-        try:
-            await worker_manager.stop_all_workers()
-            logger.info("Worker管理器已清理")
-        except Exception as e:
-            logger.error(f"Worker管理器清理失败: {e}")
-        finally:
-            worker_manager = None
 
 @app.get("/worker/health")
 async def worker_health_check():

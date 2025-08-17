@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { crawlTasksApi, creatorApi } from '@/utils/api';
+import { crawlTasksApi, creatorApi, crawlerApi } from '@/utils/api';
 import { useToast } from '@/components/Toast';
 import { Trash2, Search, Filter, RefreshCw, Eye, Calendar, Clock, User, Tag, Image, Video, ExternalLink } from 'lucide-react';
 
@@ -42,7 +42,15 @@ interface Creator {
 
 export default function ContentPage() {
   const [crawlTasks, setCrawlTasks] = useState<CrawlTask[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [creators, setCreators] = useState<Creator[]>([]);
+  const [platformOptions, setPlatformOptions] = useState<{ value: string; label: string }[]>([
+    { value: 'all', label: '全部平台' },
+    { value: 'weibo', label: '微博' },
+    { value: 'douyin', label: '抖音' },
+    { value: 'xiaohongshu', label: '小红书' },
+    { value: 'bilibili', label: '哔哩哔哩' },
+  ]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -53,6 +61,21 @@ export default function ContentPage() {
 
   useEffect(() => {
     loadData();
+    // 动态加载平台选项
+    (async () => {
+      try {
+        const data = await crawlerApi.platforms();
+        const list: { key: string; name: string }[] = data?.platforms || [];
+        if (Array.isArray(list) && list.length) {
+          const dynamic = [{ value: 'all', label: '全部平台' }].concat(
+            list.map((p) => ({ value: p.key, label: p.name }))
+          );
+          setPlatformOptions(dynamic);
+        }
+      } catch (e) {
+        // 保持默认选项
+      }
+    })();
   }, []);
 
   const loadData = async () => {
@@ -64,12 +87,38 @@ export default function ContentPage() {
         creatorApi.list()
       ]);
       setCrawlTasks(tasksData.tasks || tasksData || []);
+      setSelectedIds([]);
       setCreators(creatorsData || []);
     } catch (error) {
       console.error('加载数据失败:', error);
       setError(error instanceof Error ? error.message : '数据加载失败，请稍后重试');
     } finally {
       setLoading(false);
+    }
+  };
+  const toggleSelectOne = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const set = new Set(prev);
+      if (checked) set.add(id); else set.delete(id);
+      return Array.from(set);
+    });
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    const visibleIds = filteredTasks.map(t => (t.id || t._id)!).filter(Boolean);
+    setSelectedIds(checked ? visibleIds : []);
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`确定要删除选中的 ${selectedIds.length} 个任务吗？`)) return;
+    try {
+      await crawlTasksApi.batchDelete({ task_ids: selectedIds });
+      await loadData();
+      addToast({ type: 'success', title: '批量删除成功', message: `已删除 ${selectedIds.length} 个任务` });
+    } catch (error) {
+      console.error('批量删除失败:', error);
+      addToast({ type: 'error', title: '批量删除失败', message: error instanceof Error ? error.message : '批量删除时发生错误' });
     }
   };
 
@@ -128,6 +177,8 @@ export default function ContentPage() {
       case 'douyin': return '抖音';
       case 'xiaohongshu': return '小红书';
       case 'bilibili': return '哔哩哔哩';
+      case 'x': return 'X/Twitter';
+      case 'twitter': return 'X/Twitter';
       default: return platform;
     }
   };
@@ -259,11 +310,9 @@ export default function ContentPage() {
                 onChange={(e) => setSelectedPlatform(e.target.value)}
                 className="aws-input w-full"
               >
-                <option value="all">全部平台</option>
-                <option value="weibo">微博</option>
-                <option value="douyin">抖音</option>
-                <option value="xiaohongshu">小红书</option>
-                <option value="bilibili">哔哩哔哩</option>
+                {platformOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
             
@@ -284,12 +333,10 @@ export default function ContentPage() {
               </select>
             </div>
             
-            <div className="flex items-end">
-              <button
-                onClick={loadData}
-                className="aws-btn-secondary w-full"
-              >
-                刷新数据
+            <div className="flex items-end space-x-2">
+              <button onClick={loadData} className="aws-btn-secondary w-full">刷新数据</button>
+              <button onClick={handleBatchDelete} disabled={selectedIds.length === 0} className={`w-full ${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-danger'}`}>
+                批量删除{selectedIds.length ? `（${selectedIds.length}）` : ''}
               </button>
             </div>
           </div>
@@ -306,6 +353,10 @@ export default function ContentPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            <div className="flex items-center mb-2">
+              <input type="checkbox" className="mr-2" onChange={(e) => toggleSelectAllVisible(e.target.checked)} checked={filteredTasks.length > 0 && filteredTasks.every(t => selectedIds.includes((t.id || t._id)!))} />
+              <span className="text-sm text-gray-600">全选本页</span>
+            </div>
             {filteredTasks.map((task, index) => {
               return (
                 <div key={task.id || task._id || task.task_id || `${task.url}-${index}`}
@@ -313,6 +364,11 @@ export default function ContentPage() {
                   {/* 头部信息 */}
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center space-x-3">
+                      <input type="checkbox" className="mr-2" onChange={(e) => {
+                        const realId = (task.id || task._id) as string;
+                        if (!realId) return;
+                        toggleSelectOne(realId, e.target.checked);
+                      }} checked={selectedIds.includes((task.id || task._id)!)} />
                       <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
                         {getPlatformName(task.platform).charAt(0)}
                       </div>
@@ -357,16 +413,20 @@ export default function ContentPage() {
                     </div>
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => handleDeleteTask(task._id)}
-                        disabled={deleting === task._id}
+                        onClick={() => {
+                          const realId = (task.id || task._id) as string;
+                          if (!realId) return;
+                          handleDeleteTask(realId);
+                        }}
+                        disabled={deleting === (task.id || task._id)}
                         className={`p-2 rounded-lg transition-colors ${
-                          deleting === task._id
+                          deleting === (task.id || task._id)
                             ? 'text-gray-400 cursor-not-allowed'
                             : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
                         }`}
-                        title={deleting === task._id ? '删除中...' : '删除任务'}
+                        title={deleting === (task.id || task._id) ? '删除中...' : '删除任务'}
                       >
-                        {deleting === task._id ? (
+                        {deleting === (task.id || task._id) ? (
                           <RefreshCw className="w-4 h-4 animate-spin" />
                         ) : (
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -287,24 +287,24 @@ if __name__ == "__main__":
     import sys
     import uvicorn
     from fastapi import FastAPI
+    from contextlib import asynccontextmanager
     
-    # 创建FastAPI应用
-    app = FastAPI(title="Browser MCP Server", version="1.0.0")
-    
-    @app.on_event("startup")
-    async def startup_event():
-        """应用启动时初始化浏览器"""
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """应用生命周期管理：启动初始化浏览器，关闭进行清理"""
         try:
             await initialize_browser()
             logger.info("浏览器MCP服务器启动成功")
         except Exception as e:
             logger.error(f"浏览器初始化失败: {e}")
-    
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        """应用关闭时清理浏览器"""
+        
+        yield
+        
         await cleanup_browser()
         logger.info("浏览器MCP服务器已关闭")
+    
+    # 创建FastAPI应用（使用lifespan替代 on_event）
+    app = FastAPI(title="Browser MCP Server", version="1.0.0", lifespan=lifespan)
     
     @app.post("/fetch")
     async def fetch_endpoint(request: dict):

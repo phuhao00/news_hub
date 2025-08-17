@@ -67,6 +67,16 @@ var platformConfigs = map[string]PlatformConfig{
 		},
 		Keywords: []string{"bilibili", "b站", "哔哩哔哩", "up主", "视频"},
 	},
+	// 新增 X 平台（x.com/Twitter）
+	"x": {
+		Name: "x",
+		SearchEngines: []SearchEngine{
+			{Name: "baidu", BaseURL: "https://www.baidu.com/s?wd=%s+site:x.com", Selector: ".result.c-container"},
+			{Name: "bing", BaseURL: "https://cn.bing.com/search?q=%s+site:x.com", Selector: ".b_algo"},
+			{Name: "sogou", BaseURL: "https://www.sogou.com/web?query=%s+X+推文", Selector: ".result"},
+		},
+		Keywords: []string{"x.com", "X", "推文", "Twitter"},
+	},
 }
 
 // SearchResult 搜索结果结构
@@ -510,6 +520,7 @@ func extractAuthor(result SearchResult, platform string) string {
 		"douyin":      "抖音创作者",
 		"xiaohongshu": "小红书博主",
 		"bilibili":    "B站UP主",
+		"x":           "X 用户",
 		"news":        "新闻编辑",
 	}
 
@@ -530,6 +541,7 @@ func extractTags(result SearchResult, platform, query string) []string {
 		"douyin":      {"抖音", "短视频"},
 		"xiaohongshu": {"小红书", "生活分享", "种草"},
 		"bilibili":    {"B站", "视频"},
+		"x":           {"X", "社交媒体"},
 		"news":        {"新闻", "资讯"},
 	}
 

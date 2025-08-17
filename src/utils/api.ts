@@ -317,7 +317,8 @@ export const crawlerApi = {
   },
 
   platforms: async () => {
-    const response = await fetch(`${CRAWLER_API_URL}/crawler/platforms`);
+    // 通过后端代理获取平台列表，避免直接依赖 Python 服务路径
+    const response = await fetch(`${BACKEND_API_URL}/crawler/platforms`);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`Failed to get crawler platforms: ${errorText}`);
@@ -404,7 +405,7 @@ export const crawlTasksApi = {
     if (params?.page) searchParams.append('page', params.page.toString());
     if (params?.limit) searchParams.append('limit', params.limit.toString());
     
-    const response = await fetch(`${BACKEND_API_URL}/tasks?${searchParams}`);
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks?${searchParams}`);
     if (!response.ok) {
       throw new Error('Failed to fetch crawl tasks');
     }
@@ -412,7 +413,7 @@ export const crawlTasksApi = {
   },
 
   get: async (id: string) => {
-    const response = await fetch(`${BACKEND_API_URL}/tasks/${id}`);
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks/${id}`);
     if (!response.ok) {
       throw new Error('Failed to fetch crawl task');
     }
@@ -420,7 +421,7 @@ export const crawlTasksApi = {
   },
 
   create: async (data: any) => {
-    const response = await fetch(`${BACKEND_API_URL}/tasks`, {
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -443,6 +444,19 @@ export const crawlTasksApi = {
     return response.json();
   },
 
+  batchDelete: async (payload: { task_ids?: string[]; filter?: { platform?: string; creator_url?: string; status?: string } }) => {
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks/batch-delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to batch delete: ${text || response.status}`);
+    }
+    return response.json();
+  },
+
   execute: async (id: string) => {
     const response = await fetch(`${BACKEND_API_URL}/tasks/${id}/execute`, {
       method: 'POST',
@@ -454,7 +468,7 @@ export const crawlTasksApi = {
   },
 
   updateStatus: async (id: string, status: string, result?: any) => {
-    const response = await fetch(`${BACKEND_API_URL}/tasks/${id}/status`, {
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks/${id}/status`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',

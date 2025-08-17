@@ -8,6 +8,7 @@ import asyncio
 import logging
 from datetime import datetime
 from fastapi import FastAPI
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import uvicorn
 import json
@@ -21,8 +22,28 @@ from logging_config import setup_logging, get_logger
 setup_logging()
 logger = get_logger(__name__)
 
-# 创建FastAPI应用
-app = FastAPI(title="持续爬取测试服务", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期：启动初始化持续爬取服务，关闭时清理任务"""
+    global continuous_crawl_service
+    
+    logger.info("启动持续爬取测试服务...")
+    continuous_crawl_service = ContinuousCrawlService(db=None)
+    logger.info("持续爬取测试服务启动完成")
+    
+    yield
+    
+    logger.info("关闭持续爬取测试服务...")
+    if continuous_crawl_service:
+        tasks = continuous_crawl_service.list_continuous_tasks()
+        for task in tasks:
+            if task.get('status') == 'running':
+                await continuous_crawl_service.stop_continuous_crawl(task['task_id'])
+        await continuous_crawl_service.cleanup_stopped_tasks()
+    logger.info("持续爬取测试服务已关闭")
+
+# 创建FastAPI应用（使用lifespan替代 on_event）
+app = FastAPI(title="持续爬取测试服务", version="1.0.0", lifespan=lifespan)
 
 # 全局变量
 continuous_crawl_service = None
@@ -39,36 +60,7 @@ class TestCrawlResponse(BaseModel):
     message: str
     success: bool
 
-@app.on_event("startup")
-async def startup_event():
-    """应用启动事件"""
-    global continuous_crawl_service
-    
-    logger.info("启动持续爬取测试服务...")
-    
-    # 初始化持续爬取服务（不需要数据库连接）
-    continuous_crawl_service = ContinuousCrawlService(db=None)
-    
-    logger.info("持续爬取测试服务启动完成")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """应用关闭事件"""
-    global continuous_crawl_service
-    
-    logger.info("关闭持续爬取测试服务...")
-    
-    if continuous_crawl_service:
-        # 停止所有持续爬取任务
-        tasks = continuous_crawl_service.list_continuous_tasks()
-        for task in tasks:
-            if task.get('status') == 'running':
-                await continuous_crawl_service.stop_continuous_crawl(task['task_id'])
-        
-        # 清理已停止的任务
-        await continuous_crawl_service.cleanup_stopped_tasks()
-    
-    logger.info("持续爬取测试服务已关闭")
+ 
 
 @app.get("/")
 async def root():
