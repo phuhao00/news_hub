@@ -5,13 +5,18 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/minio/minio-go/v7"
+	"bytes"
+
 	"newshub/config"
+
+	"github.com/minio/minio-go/v7"
 )
 
 // StorageService 存储服务
@@ -82,9 +87,62 @@ func (s *StorageService) UploadFile(ctx context.Context, file multipart.File, he
 
 // UploadFromURL 从URL下载并上传文件
 func (s *StorageService) UploadFromURL(ctx context.Context, url, folder string) (*FileInfo, error) {
-	// 这里需要实现从URL下载文件的逻辑
-	// 暂时返回错误，后续实现
-	return nil, fmt.Errorf("从URL上传功能待实现")
+	// 下载远程文件
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("创建下载请求失败: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("下载失败: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("下载失败，状态码: %d", resp.StatusCode)
+	}
+
+	// 读取到内存（也可改为流式到临时文件，这里简化）
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取远程内容失败: %v", err)
+	}
+
+	// 计算哈希
+	sum := md5.Sum(data)
+	hash := fmt.Sprintf("%x", sum[:])
+
+	// 文件名与内容类型
+	if folder == "" {
+		folder = "assets"
+	}
+	ext := filepath.Ext(url)
+	if ext == "" {
+		ext = ".bin"
+	}
+	objectName := fmt.Sprintf("%s/%s_%d%s", folder, hash, time.Now().Unix(), ext)
+	contentType := mime.TypeByExtension(ext)
+	if contentType == "" {
+		contentType = resp.Header.Get("Content-Type")
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// 上传到 MinIO
+	reader := bytes.NewReader(data)
+	info, err := s.client.PutObject(ctx, s.bucketName, objectName, reader, int64(len(data)), minio.PutObjectOptions{ContentType: contentType})
+	if err != nil {
+		return nil, fmt.Errorf("上传到 MinIO 失败: %v", err)
+	}
+
+	return &FileInfo{
+		FileName:    objectName,
+		FileSize:    info.Size,
+		ContentType: contentType,
+		URL:         s.generateFileURL(objectName),
+		Hash:        hash,
+		UploadedAt:  time.Now(),
+	}, nil
 }
 
 // DeleteFile 删除文件

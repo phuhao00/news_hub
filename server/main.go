@@ -39,6 +39,11 @@ func main() {
 		log.Fatalf("初始化存储目录失败：%v\n", err)
 	}
 
+	// 初始化 MinIO 客户端
+	if err := config.InitMinIO(); err != nil {
+		log.Fatalf("初始化 MinIO 失败：%v\n", err)
+	}
+
 	// 启动定时爬虫服务
 	crawlerService := crawler.NewScheduledCrawlerService()
 	crawlerService.Start()
@@ -116,6 +121,14 @@ func main() {
 
 		// 爬取内容接口
 		api.GET("/crawler/contents", handlers.GetCrawlerContents)
+
+		// 存储上传接口（图片/视频/列表/删除/签名URL）
+		storage := handlers.NewStorageHandler()
+		api.POST("/storage/images", storage.UploadImage)
+		api.POST("/storage/videos", storage.UploadVideo)
+		api.GET("/storage/files", storage.ListFiles)
+		api.DELETE("/storage/files/:filename", storage.DeleteFile)
+		api.GET("/storage/files/:filename/url", storage.GetFileURL)
 	}
 
 	// 加载配置文件
