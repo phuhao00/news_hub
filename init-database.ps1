@@ -55,48 +55,8 @@ function Initialize-Database {
         # Execute initialization script
         docker exec newshub-mongodb mongosh newshub /docker-entrypoint-initdb.d/init-mongo.js
         
-        # Insert sample data
-        Write-Host "Inserting sample data..." -ForegroundColor Blue
-        
-        # Create sample data script file
-        $sampleScript = @'
-db = db.getSiblingDB("newshub");
-
-db.creators.insertMany([
-    {
-        username: "tech_blogger",
-        platform: "weibo",
-        created_at: new Date(),
-        updated_at: new Date()
-    },
-    {
-        username: "news_reporter", 
-        platform: "douyin",
-        created_at: new Date(),
-        updated_at: new Date()
-    },
-    {
-        username: "lifestyle_vlogger",
-        platform: "xiaohongshu",
-        created_at: new Date(),
-        updated_at: new Date()
-    }
-]);
-
-print("Sample data inserted successfully!");
-'@
-        
-        $tempFile = "init-sample-data.js"
-        $sampleScript | Out-File -FilePath $tempFile -Encoding UTF8
-        
-        # Copy to container and execute
-        docker cp $tempFile newshub-mongodb:/tmp/init-sample-data.js
-        docker exec newshub-mongodb mongosh newshub /tmp/init-sample-data.js
-        
-        # Clean up temporary files
-        Remove-Item $tempFile -Force
-        docker exec newshub-mongodb rm /tmp/init-sample-data.js
-        
+        # Skip inserting demo/sample data
+        Write-Host "Skipping demo creators insertion (as requested)." -ForegroundColor Yellow
         Write-Host "Database initialization completed!" -ForegroundColor Green
         return $true
     }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,7 +67,7 @@ func CreateCrawlerTask(c *gin.Context) {
 		"status":      bson.M{"$in": []string{"pending", "running"}},
 	}
 	var existing models.CrawlerTask
-	err := db.Collection("crawler_tasks").FindOne(ctx, existingFilter).Decode(&existing)
+	err := db.Collection("crawl_tasks").FindOne(ctx, existingFilter).Decode(&existing)
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{
 			"error":       "存在未完成的相同爬取任务",
@@ -91,7 +92,7 @@ func CreateCrawlerTask(c *gin.Context) {
 		}
 		findOpts := options.FindOne().SetSort(bson.D{{Key: "completed_at", Value: -1}})
 		var lastCompleted models.CrawlerTask
-		if err := db.Collection("crawler_tasks").FindOne(ctx, completedFilter, findOpts).Decode(&lastCompleted); err == nil {
+		if err := db.Collection("crawl_tasks").FindOne(ctx, completedFilter, findOpts).Decode(&lastCompleted); err == nil {
 			if lastCompleted.CompletedAt != nil {
 				delta := time.Since(*lastCompleted.CompletedAt)
 				cooldown := time.Duration(req.CooldownMinutes) * time.Minute
@@ -114,7 +115,7 @@ func CreateCrawlerTask(c *gin.Context) {
 		}
 	}
 
-	_, err = db.Collection("crawler_tasks").InsertOne(ctx, task)
+	_, err = db.Collection("crawl_tasks").InsertOne(ctx, task)
 	if err != nil {
 		log.Printf("创建爬取任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建爬取任务失败"})
@@ -131,10 +132,48 @@ func GetCrawlerTasks(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// 构建查询选项，按创建时间倒序排列
-	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(50)
+	platform := strings.TrimSpace(c.Query("platform"))
+	status := strings.TrimSpace(c.Query("status"))
+	search := strings.TrimSpace(c.Query("search"))
 
-	cursor, err := db.Collection("crawler_tasks").Find(ctx, bson.M{}, opts)
+	limit := 50
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	page := 1
+	if v := strings.TrimSpace(c.Query("page")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			page = n
+		}
+	}
+	skip := int64((page - 1) * limit)
+
+	filter := bson.M{}
+	if platform != "" && platform != "all" {
+		filter["platform"] = platform
+	}
+	if status != "" && status != "all" {
+		filter["status"] = status
+	}
+	if search != "" {
+		filter["$or"] = []bson.M{
+			{"task_id": bson.M{"$regex": search, "$options": "i"}},
+			{"url": bson.M{"$regex": search, "$options": "i"}},
+			{"result.title": bson.M{"$regex": search, "$options": "i"}},
+		}
+	}
+
+	total, err := db.Collection("crawl_tasks").CountDocuments(ctx, filter)
+	if err != nil {
+		log.Printf("统计任务总数失败: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "统计任务总数失败"})
+		return
+	}
+
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(int64(limit)).SetSkip(skip)
+	cursor, err := db.Collection("crawl_tasks").Find(ctx, filter, opts)
 	if err != nil {
 		log.Printf("获取爬取任务列表失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取爬取任务列表失败"})
@@ -142,21 +181,22 @@ func GetCrawlerTasks(c *gin.Context) {
 	}
 	defer cursor.Close(ctx)
 
-	var tasks []models.CrawlerTask
-	if err := cursor.All(ctx, &tasks); err != nil {
+	var rawTasks []bson.M
+	if err := cursor.All(ctx, &rawTasks); err != nil {
 		log.Printf("解析爬取任务列表失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析爬取任务列表失败"})
 		return
 	}
 
-	// Ensure we always return an array, never null
-	if tasks == nil {
-		tasks = []models.CrawlerTask{}
+	if rawTasks == nil {
+		rawTasks = []bson.M{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"tasks": tasks,
-		"total": len(tasks),
+		"tasks": rawTasks,
+		"total": total,
+		"page":  page,
+		"limit": limit,
 	})
 }
 
@@ -174,7 +214,7 @@ func GetCrawlerTask(c *gin.Context) {
 	defer cancel()
 
 	var task models.CrawlerTask
-	err = db.Collection("crawler_tasks").FindOne(ctx, bson.M{"_id": objectID}).Decode(&task)
+	err = db.Collection("crawl_tasks").FindOne(ctx, bson.M{"_id": objectID}).Decode(&task)
 	if err != nil {
 		log.Printf("获取爬取任务失败: %v", err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "任务不存在"})
@@ -225,7 +265,7 @@ func UpdateCrawlerTaskStatus(c *gin.Context) {
 		update["completed_at"] = now
 	}
 
-	_, err = db.Collection("crawler_tasks").UpdateOne(
+	_, err = db.Collection("crawl_tasks").UpdateOne(
 		ctx,
 		bson.M{"_id": objectID},
 		bson.M{"$set": update},
@@ -262,7 +302,7 @@ func DeleteCrawlerTask(c *gin.Context) {
 	}
 
 	// 删除爬取任务
-	result, err := db.Collection("crawler_tasks").DeleteOne(ctx, bson.M{"_id": objectID})
+	result, err := db.Collection("crawl_tasks").DeleteOne(ctx, bson.M{"_id": objectID})
 	if err != nil {
 		log.Printf("删除爬取任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除爬取任务失败"})
@@ -324,7 +364,7 @@ func BatchDeleteCrawlerTasks(c *gin.Context) {
 	}
 
 	// 获取要删除的任务ID列表
-	cursor, err := db.Collection("crawler_tasks").Find(ctx, filter)
+	cursor, err := db.Collection("crawl_tasks").Find(ctx, filter)
 	if err != nil {
 		log.Printf("查询要删除的任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "查询任务失败"})
@@ -352,7 +392,7 @@ func BatchDeleteCrawlerTasks(c *gin.Context) {
 	}
 
 	// 删除爬取任务
-	taskResult, err := db.Collection("crawler_tasks").DeleteMany(ctx, filter)
+	taskResult, err := db.Collection("crawl_tasks").DeleteMany(ctx, filter)
 	if err != nil {
 		log.Printf("批量删除爬取任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "批量删除任务失败"})

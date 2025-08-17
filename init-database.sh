@@ -81,45 +81,8 @@ initialize_database() {
     # 执行初始化脚本
     docker exec newshub-mongodb mongosh newshub /docker-entrypoint-initdb.d/init-mongo.js
     
-    # 插入示例数据
-    echo -e "${BLUE}插入示例数据...${NC}"
-    
-    cat > init-sample-data.js << 'EOF'
-db = db.getSiblingDB('newshub');
-
-// 插入示例创作者数据
-db.creators.insertMany([
-    {
-        username: "tech_blogger",
-        platform: "微博",
-        created_at: new Date(),
-        updated_at: new Date()
-    },
-    {
-        username: "news_reporter",
-        platform: "抖音",
-        created_at: new Date(),
-        updated_at: new Date()
-    },
-    {
-        username: "lifestyle_vlogger",
-        platform: "小红书",
-        created_at: new Date(),
-        updated_at: new Date()
-    }
-]);
-
-print("示例数据插入完成！");
-EOF
-    
-    # 复制到容器并执行
-    docker cp init-sample-data.js newshub-mongodb:/tmp/init-sample-data.js
-    docker exec newshub-mongodb mongosh newshub /tmp/init-sample-data.js
-    
-    # 清理临时文件
-    rm -f init-sample-data.js
-    docker exec newshub-mongodb rm /tmp/init-sample-data.js
-    
+    # 跳过示例创作者数据插入
+    echo -e "${YELLOW}跳过示例创作者数据插入（按要求关闭演示数据）。${NC}"
     echo -e "${GREEN}数据库初始化完成！${NC}"
 }
 

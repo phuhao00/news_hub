@@ -48,7 +48,7 @@ func GetPosts(c *gin.Context) {
 
 	// 查询已完成的爬取任务
 	taskOpts := options.Find().SetSort(bson.D{{Key: "completed_at", Value: -1}})
-	taskCursor, err := config.GetDB().Collection("crawler_tasks").Find(ctx, taskFilter, taskOpts)
+	taskCursor, err := config.GetDB().Collection("crawl_tasks").Find(ctx, taskFilter, taskOpts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -109,20 +109,20 @@ func GetPosts(c *gin.Context) {
 			PublishedAt: content.PublishedAt,
 			CreatedAt:   content.CreatedAt,
 		}
-		
+
 		// 处理媒体URLs：添加图片
 		if len(content.Images) > 0 {
 			post.MediaURLs = append(post.MediaURLs, content.Images...)
 			// 设置第一张图片作为imageUrl
 			post.ImageUrl = content.Images[0]
 		}
-		
+
 		// 处理视频URL
 		if content.VideoURL != "" {
 			post.MediaURLs = append(post.MediaURLs, content.VideoURL)
 			post.VideoUrl = content.VideoURL
 		}
-		
+
 		posts = append(posts, post)
 	}
 

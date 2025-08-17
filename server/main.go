@@ -18,8 +18,15 @@ import (
 
 func main() {
 	// 加载环境变量
-	if err := godotenv.Load(); err != nil {
-		log.Printf("警告：未找到.env文件：%v\n", err)
+	loaded := false
+	for _, p := range []string{".env", "../.env", ".env.local", "../.env.local"} {
+		if err := godotenv.Load(p); err == nil {
+			log.Printf("已加载环境变量文件: %s", p)
+			loaded = true
+		}
+	}
+	if !loaded {
+		log.Printf("警告：未找到任何 .env 或 .env.local 文件，将仅使用系统环境变量")
 	}
 
 	// 连接数据库
@@ -80,6 +87,10 @@ func main() {
 		api.POST("/videos/generate", handlers.GenerateVideo)
 		api.GET("/videos", handlers.GetVideos)
 		api.GET("/videos/:id", handlers.GetVideo)
+		api.GET("/videos/:id/status", handlers.CheckVideoStatus)
+
+		// 语音合成
+		api.POST("/speech/tts", handlers.TTS)
 
 		// 发布相关接口
 		api.POST("/publish", handlers.CreatePublishTask)

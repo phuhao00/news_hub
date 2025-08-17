@@ -14,6 +14,7 @@ const Navigation = () => {
     { href: '/crawler', label: 'Crawler', icon: '🕷️' },
     { href: '/login-state', label: 'Login State', icon: '🔐' },
     { href: '/generate', label: 'Generate', icon: '🎬' },
+    { href: '/speech', label: 'Speech', icon: '🗣️' },
     { href: '/videos', label: 'Videos', icon: '📹' },
     { href: '/publish', label: 'Publish', icon: '📤' },
     { href: '/analytics', label: 'Analytics', icon: '📊' },

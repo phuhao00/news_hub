@@ -407,6 +407,9 @@ func parseSearchResults(html string) []SearchResult {
 				Title: strings.TrimSpace(match[2]),
 			}
 
+			// 规范化常见搜索引擎跳转链接，提取真实目标URL
+			result.URL = normalizeSearchResultURL(result.URL)
+
 			// 简单的描述提取（在标题附近查找文本）
 			descRegex := regexp.MustCompile(fmt.Sprintf(`%s.*?<[^>]*>([^<]{20,200})<`, regexp.QuoteMeta(result.Title)))
 			descMatches := descRegex.FindStringSubmatch(html)
@@ -426,6 +429,51 @@ func parseSearchResults(html string) []SearchResult {
 	}
 
 	return results
+}
+
+// normalizeSearchResultURL 尝试从搜索引擎中间跳转链接中提取真实目标URL
+func normalizeSearchResultURL(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u == nil {
+		return raw
+	}
+	host := strings.ToLower(u.Host)
+
+	// Baidu: https://www.baidu.com/link?url=ENCODED
+	if strings.Contains(host, "baidu.com") {
+		if v := u.Query().Get("url"); v != "" {
+			if unescaped, err := url.QueryUnescape(v); err == nil {
+				return unescaped
+			}
+			return v
+		}
+	}
+
+	// Sogou: ...?url=TARGET
+	if strings.Contains(host, "sogou.com") {
+		if v := u.Query().Get("url"); v != "" {
+			return v
+		}
+	}
+
+	// Google: https://www.google.com/url?q=TARGET
+	if strings.Contains(host, "google.") && u.Path == "/url" {
+		if v := u.Query().Get("q"); v != "" {
+			return v
+		}
+	}
+
+	// Bing: /ck/a?url=TARGET 或 /r?url=TARGET
+	if strings.Contains(host, "bing.com") {
+		if v := u.Query().Get("url"); v != "" {
+			return v
+		}
+	}
+
+	return raw
 }
 
 // parseWithFallbackMethod 备用解析方法

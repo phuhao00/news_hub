@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { crawlTasksApi, creatorApi, crawlerApi } from '@/utils/api';
 import { useToast } from '@/components/Toast';
 import { Trash2, Search, Filter, RefreshCw, Eye, Calendar, Clock, User, Tag, Image, Video, ExternalLink } from 'lucide-react';
@@ -58,6 +59,7 @@ export default function ContentPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const { addToast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     loadData();
@@ -147,6 +149,37 @@ export default function ContentPage() {
     } finally {
       setDeleting(null);
     }
+  };
+
+  const handleGenerateVideo = () => {
+    if (selectedIds.length === 0) {
+      addToast({ type: 'error', title: '未选择内容', message: '请先选择至少一条内容' });
+      return;
+    }
+    const idSet = new Set(selectedIds);
+    const selectedTasks = crawlTasks.filter(t => idSet.has((t.id || t._id)!));
+    const posts = selectedTasks.map((task) => {
+      const result = task.result || {} as any;
+      const images = Array.isArray(result.images) ? result.images : [];
+      const videos = Array.isArray(result.videos) ? result.videos : [];
+      const published = (result.publish_time as string) || task.completed_at || task.created_at;
+      const collected = task.updated_at || task.completed_at || task.created_at;
+      return {
+        id: (task.id || task._id || task.task_id) as string,
+        creatorId: task.session_id || '',
+        platform: task.platform,
+        content: (result.content as string) || (result.title as string) || task.url,
+        images,
+        video: videos.length ? videos[0] : undefined,
+        url: task.url,
+        publishedAt: published,
+        collectedAt: collected,
+      };
+    });
+    try {
+      sessionStorage.setItem('selectedPosts', JSON.stringify(posts));
+    } catch {}
+    router.push('/generate');
   };
 
   const filteredTasks = crawlTasks.filter(task => {
@@ -338,6 +371,19 @@ export default function ContentPage() {
               <button onClick={handleBatchDelete} disabled={selectedIds.length === 0} className={`w-full ${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-danger'}`}>
                 批量删除{selectedIds.length ? `（${selectedIds.length}）` : ''}
               </button>
+              <button onClick={handleGenerateVideo} disabled={selectedIds.length === 0} className={`w-full ${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-primary'}`}>
+                生成视频并前往
+              </button>
+              <button onClick={() => {
+                if (selectedIds.length === 0) return;
+                const idSet = new Set(selectedIds);
+                const selectedTasks = crawlTasks.filter(t => idSet.has((t.id || t._id)!));
+                const combined = selectedTasks.map(t => (t.result?.content || t.result?.title || t.url || '')).filter(Boolean).join('\n');
+                try { sessionStorage.setItem('speechText', combined); } catch {}
+                router.push('/speech');
+              }} disabled={selectedIds.length === 0} className={`w-full ${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-secondary'}`}>
+                转语音并前往
+              </button>
             </div>
           </div>
         </div>
@@ -444,7 +490,22 @@ export default function ContentPage() {
                         <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                         </svg>
-                        <span className="truncate">{task.url}</span>
+                        <span className="truncate">
+                          {/* 优先展示平台域名，其次展示落地页URL */}
+                          {(() => {
+                            const domainMap: Record<string, string> = {
+                              weibo: 'weibo.com',
+                              douyin: 'douyin.com',
+                              xiaohongshu: 'xiaohongshu.com',
+                              bilibili: 'bilibili.com',
+                              x: 'x.com',
+                              twitter: 'twitter.com',
+                            };
+                            const platformDomain = domainMap[task.platform];
+                            if (platformDomain) return platformDomain;
+                            try { return new URL(task.url).host; } catch { return task.url; }
+                          })()}
+                        </span>
                       </div>
                       <div className="flex items-center text-sm text-gray-600">
                         <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -15,6 +15,18 @@ export default function GeneratePage() {
   });
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem('selectedPosts');
+      if (cached) {
+        const parsed = JSON.parse(cached) as Post[];
+        if (Array.isArray(parsed) && parsed.length) {
+          setSelectedPosts(parsed);
+        }
+      }
+    } catch {}
+  }, []);
+
   const handleGenerateVideo = async () => {
     if (selectedPosts.length === 0) {
       alert('请选择至少一个动态内容');

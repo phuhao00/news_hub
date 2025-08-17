@@ -4458,6 +4458,14 @@ class UnifiedCrawlerService:
                 posts = await self.search_and_crawl_douyin(creator_url, limit * 2)
             elif platform == "news":
                 posts = await self.search_and_crawl_news(creator_url, limit * 2)
+            elif platform in ("x", "twitter"):
+                try:
+                    from crawlers.platforms import CrawlerFactory
+                    crawler = CrawlerFactory.get_crawler(platform)
+                    posts = await crawler.crawl(creator_url, limit)
+                except Exception as e:
+                    logger.warning(f"X/Twitter 爬虫失败，回退搜索: {e}")
+                    posts = await self.search_engines_crawl(creator_url, platform, limit * 2)
             else:
                 # 使用通用搜索引擎爬取
                 posts = await self.search_engines_crawl(creator_url, platform, limit * 2)

@@ -50,7 +50,7 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 		// 根据平台设置合适的默认值
 		switch triggerReq.Platform {
 		case "weibo":
-			triggerReq.CreatorURL = "周杰伦中文网JayCn"  // 使用知名用户名作为默认值
+			triggerReq.CreatorURL = "周杰伦中文网JayCn" // 使用知名用户名作为默认值
 		case "bilibili":
 			triggerReq.CreatorURL = "热门视频"
 		case "douyin":
@@ -76,7 +76,7 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 		"status":      map[string]interface{}{"$in": []string{"pending", "running"}},
 	}
 
-	existingTaskCount, err := db.Collection("crawler_tasks").CountDocuments(ctx, existingTaskFilter)
+	existingTaskCount, err := db.Collection("crawl_tasks").CountDocuments(ctx, existingTaskFilter)
 	if err != nil {
 		log.Printf("检查重复任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "检查重复任务失败"})
@@ -86,9 +86,9 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 	if existingTaskCount > 0 {
 		log.Printf("检测到重复任务: platform=%s, creator_url=%s", triggerReq.Platform, triggerReq.CreatorURL)
 		c.JSON(http.StatusConflict, gin.H{
-			"error":   "任务已存在",
-			"message": "相同的爬取任务正在进行中，请稍后再试",
-			"platform": triggerReq.Platform,
+			"error":       "任务已存在",
+			"message":     "相同的爬取任务正在进行中，请稍后再试",
+			"platform":    triggerReq.Platform,
 			"creator_url": triggerReq.CreatorURL,
 		})
 		return
@@ -106,7 +106,7 @@ func ProxyCrawlerTrigger(c *gin.Context) {
 	}
 
 	// 保存任务到数据库
-	_, err = db.Collection("crawler_tasks").InsertOne(ctx, task)
+	_, err = db.Collection("crawl_tasks").InsertOne(ctx, task)
 	if err != nil {
 		log.Printf("创建爬取任务失败: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建爬取任务失败"})
@@ -319,7 +319,7 @@ func updateTaskStatus(taskID primitive.ObjectID, status string, errorMsg string)
 		update["completed_at"] = now
 	}
 
-	_, err := db.Collection("crawler_tasks").UpdateOne(
+	_, err := db.Collection("crawl_tasks").UpdateOne(
 		ctx,
 		map[string]interface{}{"_id": taskID},
 		map[string]interface{}{"$set": update},
