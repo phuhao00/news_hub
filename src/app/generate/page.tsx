@@ -20,11 +20,15 @@ export default function GeneratePage() {
   useEffect(() => {
     try {
       const cached = sessionStorage.getItem('selectedPosts');
+      const promptCache = sessionStorage.getItem('videoPrompt');
       if (cached) {
         const parsed = JSON.parse(cached) as Post[];
         if (Array.isArray(parsed) && parsed.length) {
           setSelectedPosts(parsed);
         }
+      }
+      if (promptCache) {
+        // 可以在此处展示到 UI，如果后续需要；当前仅用于提交
       }
     } catch {}
   }, []);
@@ -43,6 +47,10 @@ export default function GeneratePage() {
         duration: videoConfig.duration,
         provider,
         enableSpeech,
+        // 将清洗后的 prompt 传给后端（若存在）
+        ...(typeof window !== 'undefined' && sessionStorage.getItem('videoPrompt')
+          ? { prompt: sessionStorage.getItem('videoPrompt') as string }
+          : {}),
       });
 
       // 跳转到发布页面，并传递视频ID

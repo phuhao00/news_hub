@@ -176,8 +176,25 @@ export default function ContentPage() {
         collectedAt: collected,
       };
     });
+    // 组合并清洗 prompt 文本
+    const raw = selectedTasks
+      .map(t => (t.result?.content || t.result?.title || t.url || ''))
+      .filter(Boolean)
+      .join('\n');
+    const sanitize = (s: string) => {
+      const removeList = [
+        'ICP备', '违法不良信息', '营业执照', '隐私政策', '用户协议', '举报', '通知我', '温馨提示', '登录', '注册', '浏览器', '版权', '站点地图'
+      ];
+      let out = s;
+      removeList.forEach(k => { out = out.split(k).join(''); });
+      out = out.replace(/\s+/g, ' ').trim();
+      // 过长截断，避免提示词过长影响生成
+      if (out.length > 2000) out = out.slice(0, 2000) + '...';
+      return out;
+    };
     try {
       sessionStorage.setItem('selectedPosts', JSON.stringify(posts));
+      sessionStorage.setItem('videoPrompt', sanitize(raw));
     } catch {}
     router.push('/generate');
   };
