@@ -319,7 +319,7 @@ export default function ContentPage() {
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* 筛选和搜索 */}
-        <div className="aws-card p-6 mb-6">
+        <div className="aws-card p-6 mb-6 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
@@ -330,10 +330,9 @@ export default function ContentPage() {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="aws-input w-full"
-                placeholder="搜索标题或内容..."
+                placeholder="搜索标题、正文或URL..."
               />
             </div>
-            
             <div>
               <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
                 平台筛选
@@ -348,7 +347,6 @@ export default function ContentPage() {
                 ))}
               </select>
             </div>
-            
             <div>
               <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
                 状态筛选
@@ -365,23 +363,33 @@ export default function ContentPage() {
                 <option value="failed">失败</option>
               </select>
             </div>
-            
-            <div className="flex items-end space-x-2">
+            <div className="flex items-end">
               <button onClick={loadData} className="aws-btn-secondary w-full">刷新数据</button>
-              <button onClick={handleBatchDelete} disabled={selectedIds.length === 0} className={`w-full ${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-danger'}`}>
+            </div>
+          </div>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="text-sm text-gray-600">
+              已选 <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-800">{selectedIds.length}</span> 条
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={handleBatchDelete} disabled={selectedIds.length === 0} className={`${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-danger'}`}>
                 批量删除{selectedIds.length ? `（${selectedIds.length}）` : ''}
               </button>
-              <button onClick={handleGenerateVideo} disabled={selectedIds.length === 0} className={`w-full ${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-primary'}`}>
+              <button onClick={handleGenerateVideo} disabled={selectedIds.length === 0} className={`${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-primary'}`}>
                 生成视频并前往
               </button>
-              <button onClick={() => {
-                if (selectedIds.length === 0) return;
-                const idSet = new Set(selectedIds);
-                const selectedTasks = crawlTasks.filter(t => idSet.has((t.id || t._id)!));
-                const combined = selectedTasks.map(t => (t.result?.content || t.result?.title || t.url || '')).filter(Boolean).join('\n');
-                try { sessionStorage.setItem('speechText', combined); } catch {}
-                router.push('/speech');
-              }} disabled={selectedIds.length === 0} className={`w-full ${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-secondary'}`}>
+              <button
+                onClick={() => {
+                  if (selectedIds.length === 0) return;
+                  const idSet = new Set(selectedIds);
+                  const selectedTasks = crawlTasks.filter(t => idSet.has((t.id || t._id)!));
+                  const combined = selectedTasks.map(t => (t.result?.content || t.result?.title || t.url || '')).filter(Boolean).join('\n');
+                  try { sessionStorage.setItem('speechText', combined); } catch {}
+                  router.push('/speech');
+                }}
+                disabled={selectedIds.length === 0}
+                className={`${selectedIds.length === 0 ? 'aws-btn-disabled' : 'aws-btn-secondary'}`}
+              >
                 转语音并前往
               </button>
             </div>
@@ -399,225 +407,222 @@ export default function ContentPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-center mb-2">
-              <input type="checkbox" className="mr-2" onChange={(e) => toggleSelectAllVisible(e.target.checked)} checked={filteredTasks.length > 0 && filteredTasks.every(t => selectedIds.includes((t.id || t._id)!))} />
+            <div className="sticky top-2 z-10 bg-white/70 backdrop-blur rounded px-3 py-2 flex items-center gap-3">
+              <input type="checkbox" className="scale-110" onChange={(e) => toggleSelectAllVisible(e.target.checked)} checked={filteredTasks.length > 0 && filteredTasks.every(t => selectedIds.includes((t.id || t._id)!))} />
               <span className="text-sm text-gray-600">全选本页</span>
+              <span className="ml-auto text-xs text-gray-500">共 {filteredTasks.length} 条</span>
             </div>
             {filteredTasks.map((task, index) => {
               return (
                 <div key={task.id || task._id || task.task_id || `${task.url}-${index}`}
                      className="aws-card p-6 hover:shadow-lg transition-shadow">
-                  {/* 头部信息 */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center space-x-3">
-                      <input type="checkbox" className="mr-2" onChange={(e) => {
-                        const realId = (task.id || task._id) as string;
-                        if (!realId) return;
-                        toggleSelectOne(realId, e.target.checked);
-                      }} checked={selectedIds.includes((task.id || task._id)!)} />
-                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
-                        {getPlatformName(task.platform).charAt(0)}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                            {getStatusText(task.status)}
-                          </span>
-                          <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
-                            {getPlatformName(task.platform)}
-                          </span>
-                          {task.task_type && (
-                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
-                              {task.task_type}
-                            </span>
-                          )}
-                          {task.auto_triggered && (
-                            <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
-                              自动
-                            </span>
-                          )}
-                        </div>
-                        <div className="mb-2">
-                          <span className="text-xs text-gray-500">任务ID: </span>
-                          <span className="text-xs font-mono text-gray-700" title={task.task_id}>{formatTaskId(task.task_id)}</span>
-                          {task.instance_id && (
-                            <span className="ml-4">
-                              <span className="text-xs text-gray-500">实例: </span>
-                              <span className="text-xs font-mono text-gray-700">{task.instance_id}</span>
-                            </span>
-                          )}
-                        </div>
-                        <h3 className="font-semibold text-gray-900 line-clamp-1">
-                          {task.result?.title || '无标题'}
-                        </h3>
-                        {task.trigger_reason && (
-                          <p className="text-xs text-gray-500 mb-1">
-                            触发原因: {task.trigger_reason}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => {
-                          const realId = (task.id || task._id) as string;
-                          if (!realId) return;
-                          handleDeleteTask(realId);
-                        }}
-                        disabled={deleting === (task.id || task._id)}
-                        className={`p-2 rounded-lg transition-colors ${
-                          deleting === (task.id || task._id)
-                            ? 'text-gray-400 cursor-not-allowed'
-                            : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
-                        }`}
-                        title={deleting === (task.id || task._id) ? '删除中...' : '删除任务'}
-                      >
-                        {deleting === (task.id || task._id) ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 任务详情 */}
-                  <div className="mb-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                        </svg>
-                        <span className="truncate">
-                          {/* 优先展示平台域名，其次展示落地页URL */}
-                          {(() => {
-                            const domainMap: Record<string, string> = {
-                              weibo: 'weibo.com',
-                              douyin: 'douyin.com',
-                              xiaohongshu: 'xiaohongshu.com',
-                              bilibili: 'bilibili.com',
-                              x: 'x.com',
-                              twitter: 'twitter.com',
-                            };
-                            const platformDomain = domainMap[task.platform];
-                            if (platformDomain) return platformDomain;
-                            try { return new URL(task.url).host; } catch { return task.url; }
-                          })()}
-                        </span>
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>创建时间: {new Date(task.created_at).toLocaleString('zh-CN')}</span>
-                      </div>
-                      {task.session_id && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          <span>会话ID: {task.session_id}</span>
-                        </div>
-                      )}
-                      {task.started_at && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-7 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
-                          </svg>
-                          <span>开始时间: {new Date(task.started_at).toLocaleString('zh-CN')}</span>
-                        </div>
-                      )}
-                      {task.updated_at && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          <span>更新时间: {new Date(task.updated_at).toLocaleString('zh-CN')}</span>
-                        </div>
-                      )}
-                      {task.completed_at && (
-                        <div className="flex items-center text-sm text-gray-600">
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <span>完成时间: {new Date(task.completed_at).toLocaleString('zh-CN')}</span>
-                        </div>
-                      )}
-                      {task.error && (
-                        <div className="flex items-center text-sm text-red-600">
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          <span>错误: {task.error}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 内容预览 */}
-                  {task.result && (
-                    <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                      <h4 className="font-medium text-blue-900 mb-2">内容预览</h4>
-                      {task.result.title && (
-                        <div className="mb-2">
-                          <span className="font-medium text-blue-800">标题:</span>
-                          <p className="text-blue-700">{task.result.title}</p>
-                        </div>
-                      )}
-                      {task.result.author && (
-                        <div className="mb-2">
-                          <span className="font-medium text-blue-800">作者:</span>
-                          <p className="text-blue-700">{task.result.author}</p>
-                        </div>
-                      )}
-                      {task.result.publish_time && (
-                              <div className="mb-2">
-                                <span className="font-medium text-blue-800">发布时间:</span>
-                                <p className="text-blue-700">{formatDate(task.result.publish_time)}</p>
-                              </div>
-                            )}
-                      {task.result.tags && task.result.tags.length > 0 && (
-                        <div className="mb-2">
-                          <span className="font-medium text-blue-800">标签:</span>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {task.result.tags.map((tag, tIdx) => (
-                              <span key={`${task.id || task._id || index}-tag-${tag}-${tIdx}`} className="px-2 py-1 bg-blue-200 text-blue-800 rounded text-xs">
-                                {tag}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* 左侧：任务信息 */}
+                    <div className="lg:col-span-8">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-3">
+                          <input type="checkbox" className="mr-2" onChange={(e) => {
+                            const realId = (task.id || task._id) as string;
+                            if (!realId) return;
+                            toggleSelectOne(realId, e.target.checked);
+                          }} checked={selectedIds.includes((task.id || task._id)!)} />
+                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
+                            {getPlatformName(task.platform).charAt(0)}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
+                                {getStatusText(task.status)}
                               </span>
-                            ))}
+                              <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
+                                {getPlatformName(task.platform)}
+                              </span>
+                              {task.task_type && (
+                                <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
+                                  {task.task_type}
+                                </span>
+                              )}
+                              {task.auto_triggered && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">
+                                  自动
+                                </span>
+                              )}
+                            </div>
+                            <div className="mb-2">
+                              <span className="text-xs text-gray-500">任务ID: </span>
+                              <span className="text-xs font-mono text-gray-700" title={task.task_id}>{formatTaskId(task.task_id)}</span>
+                              {task.instance_id && (
+                                <span className="ml-4">
+                                  <span className="text-xs text-gray-500">实例: </span>
+                                  <span className="text-xs font-mono text-gray-700">{task.instance_id}</span>
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="font-semibold text-gray-900 line-clamp-1">
+                              {task.result?.title || '无标题'}
+                            </h3>
+                            {task.trigger_reason && (
+                              <p className="text-xs text-gray-500 mb-1">
+                                触发原因: {task.trigger_reason}
+                              </p>
+                            )}
                           </div>
                         </div>
-                      )}
-                      {task.result.content && (
-                        <div className="mb-2">
-                          <span className="font-medium text-blue-800">内容:</span>
-                          <p className="text-blue-700 text-sm mt-1 line-clamp-3">{task.result.content}</p>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => {
+                              const realId = (task.id || task._id) as string;
+                              if (!realId) return;
+                              handleDeleteTask(realId);
+                            }}
+                            disabled={deleting === (task.id || task._id)}
+                            className={`p-2 rounded-lg transition-colors ${
+                              deleting === (task.id || task._id)
+                                ? 'text-gray-400 cursor-not-allowed'
+                                : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                            }`}
+                            title={deleting === (task.id || task._id) ? '删除中...' : '删除任务'}
+                          >
+                            {deleting === (task.id || task._id) ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            )}
+                          </button>
                         </div>
-                      )}
-                      {task.result.images && task.result.images.length > 0 && (
-                        <div className="mb-2">
-                          <span className="font-medium text-blue-800">图片 ({task.result.images.length}):</span>
-                          <div className="grid grid-cols-4 gap-2 mt-1">
-                            {task.result.images.slice(0, 4).map((image, imgIdx) => (
-                              <img key={`${task.id || task._id || index}-image-${imgIdx}`} src={image} alt={`Image ${imgIdx + 1}`} className="w-full h-16 object-cover rounded" />
-                            ))}
+                      </div>
+
+                      {/* 任务详情行 */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
+                        <div className="flex items-center">
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                          </svg>
+                          <span className="truncate">
+                            {(() => {
+                              const domainMap: Record<string, string> = { weibo: 'weibo.com', douyin: 'douyin.com', xiaohongshu: 'xiaohongshu.com', bilibili: 'bilibili.com', x: 'x.com', twitter: 'twitter.com' };
+                              const platformDomain = domainMap[task.platform];
+                              if (platformDomain) return platformDomain;
+                              try { return new URL(task.url).host; } catch { return task.url; }
+                            })()}
+                          </span>
+                        </div>
+                        <div className="flex items-center">
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span>创建时间: {new Date(task.created_at).toLocaleString('zh-CN')}</span>
+                        </div>
+                        {task.session_id && (
+                          <div className="flex items-center">
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span>会话ID: {task.session_id}</span>
                           </div>
-                        </div>
-                      )}
-                      {task.result.videos && task.result.videos.length > 0 && (
-                        <div>
-                          <span className="font-medium text-blue-800">视频 ({task.result.videos.length}):</span>
-                          <div className="text-blue-700 text-sm mt-1">
-                            {task.result.videos.map((video, vIdx) => (
-                              <div key={`${task.id || task._id || index}-video-${vIdx}`} className="truncate">{video}</div>
-                            ))}
+                        )}
+                        {task.started_at && (
+                          <div className="flex items-center">
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-7 4h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                            </svg>
+                            <span>开始时间: {new Date(task.started_at).toLocaleString('zh-CN')}</span>
                           </div>
-                        </div>
-                      )}
+                        )}
+                        {task.updated_at && (
+                          <div className="flex items-center">
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            <span>更新时间: {new Date(task.updated_at).toLocaleString('zh-CN')}</span>
+                          </div>
+                        )}
+                        {task.completed_at && (
+                          <div className="flex items-center">
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>完成时间: {new Date(task.completed_at).toLocaleString('zh-CN')}</span>
+                          </div>
+                        )}
+                        {task.error && (
+                          <div className="flex items-center text-red-600">
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>错误: {task.error}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
+
+                    {/* 右侧：内容预览 */}
+                    {task.result && (
+                      <div className="lg:col-span-4">
+                        <div className="p-4 bg-blue-50 rounded-lg h-full">
+                          <h4 className="font-medium text-blue-900 mb-2">内容预览</h4>
+                          {task.result.title && (
+                            <div className="mb-2">
+                              <span className="font-medium text-blue-800">标题:</span>
+                              <p className="text-blue-700">{task.result.title}</p>
+                            </div>
+                          )}
+                          {task.result.author && (
+                            <div className="mb-2">
+                              <span className="font-medium text-blue-800">作者:</span>
+                              <p className="text-blue-700">{task.result.author}</p>
+                            </div>
+                          )}
+                          {task.result.publish_time && (
+                            <div className="mb-2">
+                              <span className="font-medium text-blue-800">发布时间:</span>
+                              <p className="text-blue-700">{formatDate(task.result.publish_time)}</p>
+                            </div>
+                          )}
+                          {task.result.tags && task.result.tags.length > 0 && (
+                            <div className="mb-2">
+                              <span className="font-medium text-blue-800">标签:</span>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {task.result.tags.map((tag, tIdx) => (
+                                  <span key={`${task.id || task._id || index}-tag-${tag}-${tIdx}`} className="px-2 py-1 bg-blue-200 text-blue-800 rounded text-xs">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {task.result.content && (
+                            <div className="mb-2">
+                              <span className="font-medium text-blue-800">内容:</span>
+                              <p className="text-blue-700 text-sm mt-1 line-clamp-5">{task.result.content}</p>
+                            </div>
+                          )}
+                          {task.result.images && task.result.images.length > 0 && (
+                            <div className="mb-2">
+                              <span className="font-medium text-blue-800">图片 ({task.result.images.length}):</span>
+                              <div className="grid grid-cols-4 gap-2 mt-1">
+                                {task.result.images.slice(0, 4).map((image, imgIdx) => (
+                                  <img key={`${task.id || task._id || index}-image-${imgIdx}`} src={image} alt={`Image ${imgIdx + 1}`} className="w-full h-16 object-cover rounded" />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {task.result.videos && task.result.videos.length > 0 && (
+                            <div>
+                              <span className="font-medium text-blue-800">视频 ({task.result.videos.length}):</span>
+                              <div className="text-blue-700 text-sm mt-1">
+                                {task.result.videos.map((video, vIdx) => (
+                                  <div key={`${task.id || task._id || index}-video-${vIdx}`} className="truncate">{video}</div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

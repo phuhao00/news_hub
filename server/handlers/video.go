@@ -66,34 +66,51 @@ func GenerateVideo(c *gin.Context) {
 	if apiKey == "" {
 		switch provider {
 		case "minimax":
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置MINIMAX_API_KEY"}); return
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置MINIMAX_API_KEY"})
+			return
 		case "runway":
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置RUNWAY_API_KEY"}); return
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置RUNWAY_API_KEY"})
+			return
 		case "openai":
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置OPENAI_API_KEY"}); return
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置OPENAI_API_KEY"})
+			return
 		case "kling":
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置KLING_API_KEY"}); return
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置KLING_API_KEY"})
+			return
 		case "generic":
 			// 可选，很多自建网关可能不需要 key
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置ZHIPU_API_KEY"}); return
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置ZHIPU_API_KEY"})
+			return
 		}
 	}
 
 	var endpoints []string
 	switch provider {
 	case "minimax":
-		if ep := os.Getenv("MINIMAX_VIDEO_URL"); strings.TrimSpace(ep) != "" { endpoints = []string{ep} }
+		if ep := os.Getenv("MINIMAX_VIDEO_URL"); strings.TrimSpace(ep) != "" {
+			endpoints = []string{ep}
+		}
 	case "runway":
-		if ep := os.Getenv("RUNWAY_VIDEO_URL"); strings.TrimSpace(ep) != "" { endpoints = []string{ep} }
+		if ep := os.Getenv("RUNWAY_VIDEO_URL"); strings.TrimSpace(ep) != "" {
+			endpoints = []string{ep}
+		}
 	case "openai":
-		if ep := os.Getenv("OPENAI_VIDEO_URL"); strings.TrimSpace(ep) != "" { endpoints = []string{ep} }
+		if ep := os.Getenv("OPENAI_VIDEO_URL"); strings.TrimSpace(ep) != "" {
+			endpoints = []string{ep}
+		}
 	case "kling":
-		if ep := os.Getenv("KLING_VIDEO_URL"); strings.TrimSpace(ep) != "" { endpoints = []string{ep} }
+		if ep := os.Getenv("KLING_VIDEO_URL"); strings.TrimSpace(ep) != "" {
+			endpoints = []string{ep}
+		}
 	case "generic":
-		if ep := os.Getenv("GENERIC_VIDEO_URL"); strings.TrimSpace(ep) != "" { endpoints = []string{ep} }
+		if ep := os.Getenv("GENERIC_VIDEO_URL"); strings.TrimSpace(ep) != "" {
+			endpoints = []string{ep}
+		}
 	default: // zhipu
-		if custom := os.Getenv("ZHIPU_VIDEO_URL"); strings.TrimSpace(custom) != "" { endpoints = append(endpoints, custom) }
+		if custom := os.Getenv("ZHIPU_VIDEO_URL"); strings.TrimSpace(custom) != "" {
+			endpoints = append(endpoints, custom)
+		}
 		endpoints = append(endpoints,
 			"https://open.bigmodel.cn/api/paas/v4/videos/generations",
 			"https://open.bigmodel.cn/api/v4/videos/generations",
@@ -255,11 +272,21 @@ func CheckVideoStatus(c *gin.Context) {
 	}
 	if statusKey == "" {
 		switch strings.ToLower(strings.TrimSpace(video.Provider)) {
-		case "minimax": c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置MINIMAX_API_KEY"}); return
-		case "runway": c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置RUNWAY_API_KEY"}); return
-		case "openai": c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置OPENAI_API_KEY"}); return
-		case "kling": c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置KLING_API_KEY"}); return
-		default: c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置ZHIPU_API_KEY"}); return
+		case "minimax":
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置MINIMAX_API_KEY"})
+			return
+		case "runway":
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置RUNWAY_API_KEY"})
+			return
+		case "openai":
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置OPENAI_API_KEY"})
+			return
+		case "kling":
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置KLING_API_KEY"})
+			return
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置ZHIPU_API_KEY"})
+			return
 		}
 	}
 
@@ -328,43 +355,61 @@ func CheckVideoStatus(c *gin.Context) {
 	// 解析状态（兼容不同字段）
 	taskStatus := ""
 	for _, k := range []string{"task_status", "status", "state"} {
-		if v, ok := resultRaw[k].(string); ok && v != "" { taskStatus = v; break }
+		if v, ok := resultRaw[k].(string); ok && v != "" {
+			taskStatus = v
+			break
+		}
 	}
 	if taskStatus == "" {
 		if data, ok := resultRaw["data"].(map[string]interface{}); ok {
 			for _, k := range []string{"task_status", "status", "state"} {
-				if v, ok2 := data[k].(string); ok2 && v != "" { taskStatus = v; break }
+				if v, ok2 := data[k].(string); ok2 && v != "" {
+					taskStatus = v
+					break
+				}
 			}
 		}
 	}
 
 	var videoURL string
 	// 多种位置与字段兼容提取 URL
-	if u, ok := resultRaw["url"].(string); ok && u != "" { videoURL = u }
+	if u, ok := resultRaw["url"].(string); ok && u != "" {
+		videoURL = u
+	}
 	if videoURL == "" {
 		if m, ok := resultRaw["result"].(map[string]interface{}); ok {
-			if u, ok2 := m["url"].(string); ok2 { videoURL = u }
+			if u, ok2 := m["url"].(string); ok2 {
+				videoURL = u
+			}
 		}
 	}
 	if videoURL == "" {
 		if arr, ok := resultRaw["video_result"].([]interface{}); ok && len(arr) > 0 {
 			if m, ok2 := arr[0].(map[string]interface{}); ok2 {
-				if u, ok3 := m["url"].(string); ok3 { videoURL = u }
+				if u, ok3 := m["url"].(string); ok3 {
+					videoURL = u
+				}
 			}
 		}
 	}
 	if videoURL == "" {
 		if data, ok := resultRaw["data"].(map[string]interface{}); ok {
-			if u, ok2 := data["url"].(string); ok2 { videoURL = u }
+			if u, ok2 := data["url"].(string); ok2 {
+				videoURL = u
+			}
 			if videoURL == "" {
 				if m, ok2 := data["result"].(map[string]interface{}); ok2 {
-					if u, ok3 := m["url"].(string); ok3 { videoURL = u }
+					if u, ok3 := m["url"].(string); ok3 {
+						videoURL = u
+					}
 				}
 			}
 			if videoURL == "" {
 				if arr, ok2 := data["video_result"].([]interface{}); ok2 && len(arr) > 0 {
 					if m, ok3 := arr[0].(map[string]interface{}); ok3 {
-						if u, ok4 := m["url"].(string); ok4 { videoURL = u }
+						if u, ok4 := m["url"].(string); ok4 {
+							videoURL = u
+						}
 					}
 				}
 			}

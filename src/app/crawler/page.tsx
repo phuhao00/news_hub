@@ -387,19 +387,19 @@ export default function CrawlerPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <div className="max-w-xs">
-                      {task.creator_url.startsWith('http') ? (
+                      {(task.creator_url || '').startsWith('http') ? (
                         <a 
-                          href={task.creator_url} 
+                          href={task.creator_url || '#'} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 truncate block"
-                          title={task.creator_url}
+                          title={task.creator_url || ''}
                         >
-                          {task.creator_url}
+                          {task.creator_url || '-'}
                         </a>
                       ) : (
-                        <span className="text-gray-700 font-medium truncate block" title={task.creator_url}>
-                          🔍 {task.creator_url}
+                        <span className="text-gray-700 font-medium truncate block" title={task.creator_url || ''}>
+                          🔍 {task.creator_url || '-'}
                         </span>
                       )}
                     </div>
