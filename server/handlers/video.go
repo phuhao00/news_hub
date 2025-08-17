@@ -204,6 +204,7 @@ func GenerateVideo(c *gin.Context) {
 		Status:    "processing",
 		TaskID:    taskID,
 		Provider:  provider,
+		Prompt:    cleanedPrompt,
 		CreatedAt: time.Now(),
 	}
 	for _, pid := range req.PostIDs {
@@ -213,11 +214,7 @@ func GenerateVideo(c *gin.Context) {
 	}
 	// 如果开启语音合成，将清洗后的文案暂存，后续可由前端/发布流转发给TTS
 	if req.EnableSpeech {
-		if video.Error == "" {
-			video.Error = "speech_text:" + cleanedPrompt
-		} else {
-			video.Error += " | speech_text:" + cleanedPrompt
-		}
+		video.SpeechText = cleanedPrompt
 	}
 
 	coll := config.GetDB().Collection("videos")

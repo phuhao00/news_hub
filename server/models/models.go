@@ -56,6 +56,8 @@ type Video struct {
 	Error     string               `bson:"error,omitempty" json:"error,omitempty"`
 	TaskID    string               `bson:"task_id,omitempty" json:"task_id,omitempty"`
 	Provider  string               `bson:"provider,omitempty" json:"provider,omitempty"`
+	Prompt    string               `bson:"prompt,omitempty" json:"prompt,omitempty"`
+	SpeechText string              `bson:"speech_text,omitempty" json:"speech_text,omitempty"`
 	CreatedAt time.Time            `bson:"created_at" json:"created_at"`
 }
 
