@@ -19,7 +19,8 @@ import html2text
 import re
 import json
 from bson import ObjectId
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
+from utils.browser_config import get_secure_browser_config
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 from crawl4ai.chunking_strategy import RegexChunking
 from storage import get_storage_client
@@ -286,28 +287,13 @@ class UnifiedCrawlerService:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
             
-            # Configure browser with simplified settings to avoid startup hang
-            browser_config = BrowserConfig(
+            # Configure browser with security warning prevention settings
+            browser_config = get_secure_browser_config(
+                headless=True,
                 browser_type="chromium",
-                headless=True,  # Use headless mode to avoid display issues
                 viewport_width=1920,
                 viewport_height=1080,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                ignore_https_errors=True,
-                java_script_enabled=True,
-                verbose=False,  # Reduce verbosity to avoid log spam
-                # Minimal browser parameters for stable startup
-                extra_args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-web-security",
-                    "--no-first-run",
-                    "--disable-default-apps",
-                    "--disable-infobars",
-                    "--ignore-certificate-errors",
-                    "--allow-running-insecure-content"
-                ]
+                verbose=False
             )
             
             # Initialize crawl4ai async crawler

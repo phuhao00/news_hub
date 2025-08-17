@@ -15,7 +15,8 @@ from bs4 import BeautifulSoup
 import html2text
 
 # crawl4ai imports
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
+from utils.browser_config import get_minimal_browser_config
 from crawl4ai.extraction_strategy import LLMExtractionStrategy, CosineStrategy
 from crawl4ai.chunking_strategy import RegexChunking
 
@@ -76,9 +77,9 @@ class MCPCrawl4AIProcessor:
             self.mcp_manager = await get_mcp_manager(mcp_config)
             
             # 初始化crawl4ai（用于内容处理，不用于网页获取）
-            browser_config = BrowserConfig(
+            browser_config = get_minimal_browser_config(
                 headless=True,
-                verbose=False
+                browser_type="chromium"
             )
             self.crawler = AsyncWebCrawler(config=browser_config)
             await self.crawler.start()

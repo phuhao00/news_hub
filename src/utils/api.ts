@@ -1,6 +1,6 @@
 // API基础配置
-const BACKEND_API_URL = 'http://localhost:8081/api';
-const CRAWLER_API_URL = 'http://localhost:8001';
+const BACKEND_API_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'http://localhost:8081/api';
+const CRAWLER_API_URL = process.env.NEXT_PUBLIC_CRAWLER_API_URL || 'http://localhost:8001';
 
 // 创作者相关API
 export const creatorApi = {
@@ -404,7 +404,7 @@ export const crawlTasksApi = {
     if (params?.page) searchParams.append('page', params.page.toString());
     if (params?.limit) searchParams.append('limit', params.limit.toString());
     
-    const response = await fetch(`${BACKEND_API_URL}/tasks?${searchParams}`);
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks?${searchParams}`);
     if (!response.ok) {
       throw new Error('Failed to fetch crawl tasks');
     }
@@ -412,7 +412,7 @@ export const crawlTasksApi = {
   },
 
   get: async (id: string) => {
-    const response = await fetch(`${BACKEND_API_URL}/tasks/${id}`);
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks/${id}`);
     if (!response.ok) {
       throw new Error('Failed to fetch crawl task');
     }
@@ -420,7 +420,7 @@ export const crawlTasksApi = {
   },
 
   create: async (data: any) => {
-    const response = await fetch(`${BACKEND_API_URL}/tasks`, {
+    const response = await fetch(`${BACKEND_API_URL}/crawler/tasks`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

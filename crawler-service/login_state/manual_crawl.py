@@ -20,7 +20,8 @@ from bs4 import BeautifulSoup
 import html2text
 
 # Crawl4AI imports for intelligent extraction
-from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, LLMConfig
+from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, LLMConfig
+from utils.browser_config import get_minimal_browser_config
 from crawl4ai.extraction_strategy import LLMExtractionStrategy
 
 from .models import (
@@ -632,7 +633,7 @@ class ManualCrawlService:
                 # 性能优化：添加超时控制
                 async with asyncio.timeout(crawl4ai_timeout):
                     if not self.crawler:
-                        browser_config = BrowserConfig(
+                        browser_config = get_minimal_browser_config(
                             headless=True,
                             browser_type="chromium"
                         )
