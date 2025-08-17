@@ -28,15 +28,10 @@ func GenerateVideo(c *gin.Context) {
 		Duration     int      `json:"duration"`
 		Prompt       string   `json:"prompt"`
 		EnableSpeech bool     `json:"enableSpeech"`
+		Provider     string   `json:"provider"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求参数"})
-		return
-	}
-
-	apiKey := os.Getenv("ZHIPU_API_KEY")
-	if apiKey == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置ZHIPU_API_KEY"})
 		return
 	}
 
@@ -46,12 +41,62 @@ func GenerateVideo(c *gin.Context) {
 	}
 	cleanedPrompt := sanitizePrompt(req.Prompt)
 
-	// 调用智谱创建视频任务（多端点回退）
-	endpoints := []string{
-		"https://open.bigmodel.cn/api/paas/v4/videos/generations",
-		"https://open.bigmodel.cn/api/v4/videos/generations",
-		"https://open.bigmodel.cn/api/v1/videos/generations",
+	// 调用第三方创建视频任务（多端点回退）
+	provider := strings.ToLower(strings.TrimSpace(req.Provider))
+	if provider == "" {
+		provider = "zhipu"
 	}
+
+	// 选择 API Key
+	var apiKey string
+	switch provider {
+	case "minimax":
+		apiKey = os.Getenv("MINIMAX_API_KEY")
+	default: // zhipu
+		apiKey = os.Getenv("ZHIPU_API_KEY")
+	}
+	if apiKey == "" {
+		if provider == "minimax" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置MINIMAX_API_KEY"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置ZHIPU_API_KEY"})
+		return
+	}
+
+	var endpoints []string
+	switch provider {
+	case "minimax":
+		// 从环境读取 minimax 端点，必填
+		if ep := os.Getenv("MINIMAX_VIDEO_URL"); strings.TrimSpace(ep) != "" {
+			endpoints = []string{ep}
+		}
+	default: // zhipu
+		// 支持自定义覆盖 + 默认回退链
+		if custom := os.Getenv("ZHIPU_VIDEO_URL"); strings.TrimSpace(custom) != "" {
+			endpoints = append(endpoints, custom)
+		}
+		endpoints = append(endpoints,
+			"https://open.bigmodel.cn/api/paas/v4/videos/generations",
+			"https://open.bigmodel.cn/api/v4/videos/generations",
+			"https://open.bigmodel.cn/api/v1/videos/generations",
+		)
+	}
+	// 过滤空端点
+	{
+		var filtered []string
+		for _, ep := range endpoints {
+			if strings.TrimSpace(ep) != "" {
+				filtered = append(filtered, ep)
+			}
+		}
+		endpoints = filtered
+	}
+	if len(endpoints) == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "未配置可用的视频生成端点"})
+		return
+	}
+
 	var taskID string
 	var lastRespCode int
 	var lastRespBody string
@@ -123,6 +168,7 @@ func GenerateVideo(c *gin.Context) {
 		Duration:  req.Duration,
 		Status:    "processing",
 		TaskID:    taskID,
+		Provider:  provider,
 		CreatedAt: time.Now(),
 	}
 	for _, pid := range req.PostIDs {
@@ -179,12 +225,33 @@ func CheckVideoStatus(c *gin.Context) {
 		return
 	}
 
-	// 调用智谱查询结果（多端点回退）
-	statusEPs := []string{
-		fmt.Sprintf("https://open.bigmodel.cn/api/paas/v4/videos/tasks/%s", video.TaskID),
-		fmt.Sprintf("https://open.bigmodel.cn/api/v4/videos/tasks/%s", video.TaskID),
-		fmt.Sprintf("https://open.bigmodel.cn/api/v1/videos/tasks/%s", video.TaskID),
+	// 调用第三方查询结果（多端点回退）
+	var statusEPs []string
+	switch strings.ToLower(strings.TrimSpace(video.Provider)) {
+	case "minimax":
+		if ep := os.Getenv("MINIMAX_VIDEO_STATUS_URL"); strings.TrimSpace(ep) != "" {
+			statusEPs = append(statusEPs, fmt.Sprintf(ep, video.TaskID))
+		}
+	default: // zhipu
+		if custom := os.Getenv("GENERIC_VIDEO_STATUS_URL"); strings.TrimSpace(custom) != "" {
+			statusEPs = append(statusEPs, fmt.Sprintf(custom, video.TaskID))
+		}
+		statusEPs = append(statusEPs,
+			fmt.Sprintf("https://open.bigmodel.cn/api/paas/v4/videos/tasks/%s", video.TaskID),
+			fmt.Sprintf("https://open.bigmodel.cn/api/v4/videos/tasks/%s", video.TaskID),
+			fmt.Sprintf("https://open.bigmodel.cn/api/v1/videos/tasks/%s", video.TaskID),
+		)
 	}
+	{
+		var filtered []string
+		for _, ep := range statusEPs {
+			if strings.TrimSpace(ep) != "" {
+				filtered = append(filtered, ep)
+			}
+		}
+		statusEPs = filtered
+	}
+
 	var resultRaw map[string]interface{}
 	var respBody string
 	for _, ep := range statusEPs {
@@ -320,7 +387,7 @@ func GetVideo(c *gin.Context) {
 
 	// 设置响应头
 	c.Header("Content-Type", "video/mp4")
-	c.Header("Content-Length", string(fileInfo.Size()))
+	c.Header("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
 	c.Header("Content-Disposition", "inline; filename=\""+filepath.Base(videoPath)+"\"")
 
 	// 发送文件内容

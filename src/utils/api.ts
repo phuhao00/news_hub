@@ -256,7 +256,7 @@ export const automationApi = {
 
 // 视频生成相关API
 export const videoApi = {
-  generate: async (data: { postIds: string[]; style: string; duration: number }) => {
+  generate: async (data: { postIds: string[]; style: string; duration: number; provider?: string; enableSpeech?: boolean }) => {
     const response = await fetch(`${BACKEND_API_URL}/videos/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

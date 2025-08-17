@@ -10,6 +10,7 @@ export default function SpeechPage() {
   const [speed, setSpeed] = useState<number | "">("");
   const [pitch, setPitch] = useState<number | "">("");
   const [clean, setClean] = useState(true);
+  const [provider, setProvider] = useState<string>('minimax');
   const [loading, setLoading] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string>("");
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -36,6 +37,7 @@ export default function SpeechPage() {
           speed: speed === "" ? undefined : Number(speed),
           pitch: pitch === "" ? undefined : Number(pitch),
           clean,
+          provider,
         }),
       });
       if (!resp.ok) {
@@ -86,6 +88,19 @@ export default function SpeechPage() {
             />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">提供商</label>
+              <select className="aws-input w-full" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                <option value="minimax">Minimax</option>
+                <option value="azure">Azure Speech</option>
+                <option value="openai">OpenAI</option>
+                <option value="google">Google TTS</option>
+                <option value="dashscope">DashScope(通义)</option>
+                <option value="kimi">Kimi(直通)</option>
+                <option value="grok">Grok(直通)</option>
+                <option value="tiangong">天工(直通)</option>
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-medium mb-2">音色</label>
               <select className="aws-input w-full" value={voice} onChange={(e) => setVoice(e.target.value)}>

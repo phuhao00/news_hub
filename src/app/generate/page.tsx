@@ -13,6 +13,8 @@ export default function GeneratePage() {
     duration: 60,
     resolution: '1080p'
   });
+  const [provider, setProvider] = useState<string>('zhipu');
+  const [enableSpeech, setEnableSpeech] = useState<boolean>(true);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -38,7 +40,9 @@ export default function GeneratePage() {
       const result = await videoApi.generate({
         postIds: selectedPosts.map(post => post.id),
         style: videoConfig.style,
-        duration: videoConfig.duration
+        duration: videoConfig.duration,
+        provider,
+        enableSpeech,
       });
 
       // 跳转到发布页面，并传递视频ID
@@ -86,6 +90,16 @@ export default function GeneratePage() {
               </div>
               
               <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
+                    提供商
+                  </label>
+                  <select value={provider} onChange={(e)=>setProvider(e.target.value)} className="aws-input w-full" disabled={loading}>
+                    <option value="zhipu">Zhipu CogVideoX</option>
+                    <option value="minimax">Minimax Video</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">不同提供商能力与时延不同</p>
+                </div>
                 <div>
                   <label className="block text-sm font-medium mb-2" style={{ color: 'var(--aws-gray-900)' }}>
                     视频风格
@@ -139,6 +153,10 @@ export default function GeneratePage() {
                     <option value="4K">⭐ 4K (超高清)</option>
                   </select>
                   <p className="text-xs text-gray-500 mt-1">4K分辨率生成时间较长</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" checked={enableSpeech} onChange={(e)=>setEnableSpeech(e.target.checked)} />
+                  <span className="text-sm" style={{ color: 'var(--aws-gray-900)' }}>自动为视频生成配音文案</span>
                 </div>
               </div>
             </div>

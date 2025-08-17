@@ -55,6 +55,7 @@ type Video struct {
 	Status    string               `bson:"status" json:"status"` // processing, completed, failed
 	Error     string               `bson:"error,omitempty" json:"error,omitempty"`
 	TaskID    string               `bson:"task_id,omitempty" json:"task_id,omitempty"`
+	Provider  string               `bson:"provider,omitempty" json:"provider,omitempty"`
 	CreatedAt time.Time            `bson:"created_at" json:"created_at"`
 }
 
